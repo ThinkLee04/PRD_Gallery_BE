@@ -1,0 +1,84 @@
+# Backend CI — runs the quality gates required by docs/technical-spec.md (§15)
+# before any deploy: type checking, lint/format, unit + DB integration tests,
+# and a production build. The frontend lives in a separate repository and is
+# deployed via Vercel.
+#
+# No real secrets are required: the PostgreSQL service is ephemeral and the
+# auth env vars used by the migration runner are non-secret placeholders.
+
+name: be-ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: be-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Typecheck, lint, test, build
+    runs-on: ubuntu-latest
+
+    services:
+      # Ephemeral database so DB-gated integration tests (test/auth/integration.test.ts)
+      # run instead of self-skipping. Never the managed/production database.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: photo_vault_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/photo_vault_test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply migrations
+        run: npm run migrate
+        env:
+          # Placeholders so the config fail-fast validator (src/config.ts) passes;
+          # the migration runner never calls Google or needs real credentials.
+          APP_BASE_URL: http://localhost:5173
+          GOOGLE_CLIENT_ID: ci-placeholder
+          GOOGLE_CLIENT_SECRET: ci-placeholder
+          GOOGLE_REDIRECT_URI: http://localhost:3000/auth/google/callback
+          SESSION_SECRET: ci-placeholder-0123456789abcdef0123456789abcdef
+
+      - name: Tests (unit + DB integration)
+        run: npm test
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint & format check
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
