@@ -1,0 +1,4 @@
+# Normalize line endings to LF in the repository and on checkout.
+# Keeps `npm run lint` (Biome format check) green on all platforms and in CI.
+# One-time migration for existing clones: git add --renormalize .
+* text=auto eol=lf
