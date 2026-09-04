@@ -89,8 +89,13 @@ jobs:
         run: |
           set -euo pipefail
           install -d -m 700 ~/.ssh
-          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          # Normalize to LF: a key pasted with Windows CRLF line endings makes
+          # ssh fail with "error in libcrypto" when loading the key.
+          printf '%s\n' "$VPS_SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+          # Fail fast with a clear message if the stored secret is still not a
+          # readable private key.
+          ssh-keygen -y -f ~/.ssh/deploy_key >/dev/null
           ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
 
       - name: Upload release
