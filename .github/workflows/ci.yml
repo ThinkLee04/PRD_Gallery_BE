@@ -9,9 +9,9 @@
 name: be-ci
 
 on:
+  # Run only when changes are merged to master. PRs do not trigger CI.
   push:
     branches: [master]
-  pull_request:
 
 permissions:
   contents: read
