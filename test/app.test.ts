@@ -10,6 +10,14 @@ const TEST_CONFIG: AppConfig = {
 	port: 0,
 	corsOrigin: "http://localhost:5173",
 	databaseUrl: null, // no database in these tests -> readiness reports not_configured
+	appBaseUrl: "http://localhost:5173",
+	googleClientId: "test-client-id",
+	googleClientSecret: "test-client-secret",
+	googleRedirectUri: "http://localhost:3000/auth/google/callback",
+	sessionSecret: "test-session-secret-0123456789abcdef0123456789abcdef",
+	sessionTtlDays: 30,
+	authRateLimitMax: 10_000,
+	authRateLimitWindowSeconds: 60,
 };
 
 describe("HTTP API base structure", () => {
