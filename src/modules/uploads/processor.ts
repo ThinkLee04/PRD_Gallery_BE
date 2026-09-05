@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import * as exifr from "exifr";
+import exifr from "exifr";
 import { fileTypeFromBuffer } from "file-type";
 import type pg from "pg";
 import type { AppConfig } from "../../config.js";
@@ -45,6 +45,20 @@ interface PendingPhoto {
 	objectKey: string;
 	mediaType: "IMAGE" | "VIDEO";
 	contentType: string;
+}
+
+interface CaptureExif {
+	DateTimeOriginal?: Date;
+	CreateDate?: Date;
+	OffsetTimeOriginal?: string;
+}
+
+export async function parseCaptureExif(
+	buffer: Buffer,
+): Promise<CaptureExif | null> {
+	return exifr
+		.parse(buffer, ["DateTimeOriginal", "CreateDate", "OffsetTimeOriginal"])
+		.catch(() => null) as Promise<CaptureExif | null>;
 }
 
 async function extractVideo(
@@ -130,13 +144,7 @@ async function processPhoto(
 	const sharp = sharpModule.default;
 	const source = sharp(buffer, { failOn: "error" }).rotate();
 	const metadata = await source.metadata();
-	const exif = (await exifr
-		.parse(buffer, ["DateTimeOriginal", "CreateDate", "OffsetTimeOriginal"])
-		.catch(() => null)) as {
-		DateTimeOriginal?: Date;
-		CreateDate?: Date;
-		OffsetTimeOriginal?: string;
-	} | null;
+	const exif = await parseCaptureExif(buffer);
 	const capturedAt = exif?.DateTimeOriginal ?? exif?.CreateDate ?? null;
 	const offsetMatch = exif?.OffsetTimeOriginal?.match(
 		/^([+-])(\d{2}):(\d{2})$/,
