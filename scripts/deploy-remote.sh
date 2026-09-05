@@ -2,12 +2,22 @@
 # Runs on the VPS after release files are uploaded. Streamed by
 # .github/workflows/deploy.yml via `bash -s`; expects these env vars:
 #   APP_DIR, RELEASE_DIR, SERVICE_NAME, BACKUP_BEFORE_MIGRATE
-# Real credentials are never passed here — they are sourced server-side from
-# $APP_DIR/photo-vault.env (chmod 600).
+# Real credentials are never passed here — values are read server-side from
+# $APP_DIR/photo-vault.env (chmod 600) as raw text. We never `source` that file:
+# a Postgres URL contains '&', which bash would treat as a control operator and
+# silently drop the assignment. Text extraction keeps '&', '#' etc. intact.
 set -euo pipefail
 
 RELEASE="$APP_DIR/$RELEASE_DIR"
 echo "==> release: $RELEASE"
+
+# Read a KEY=value line from the env file without shell-evaluating it.
+# Strips an optional pair of surrounding double quotes.
+env_file_value() {
+	sed -n "s/^[[:space:]]*$1=//p" "$APP_DIR/photo-vault.env" \
+		| tail -n 1 \
+		| sed -e 's/^"//' -e 's/"$//'
+}
 
 # Make Node/npm visible in non-interactive SSH shells (nvm-style installs).
 if [ -s "$HOME/.nvm/nvm.sh" ]; then
@@ -29,18 +39,22 @@ ln -sfn "$RELEASE" "$APP_DIR/current"
 # 3. Optional pre-migration backup (DATABASE_URL read server-side).
 if [ "$BACKUP_BEFORE_MIGRATE" = "true" ]; then
 	mkdir -p "$APP_DIR/backups"
-	set -a
-	. "$APP_DIR/photo-vault.env"
-	set +a
-	pg_dump "$DATABASE_URL" > "$APP_DIR/backups/pre-${RELEASE_DIR##*/}.sql" 2>/dev/null
+	DB_URL="$(env_file_value DATABASE_URL)"
+	[ -n "$DB_URL" ] || {
+		echo "==> DATABASE_URL missing in $APP_DIR/photo-vault.env" >&2
+		exit 1
+	}
+	pg_dump "$DB_URL" > "$APP_DIR/backups/pre-${RELEASE_DIR##*/}.sql" 2>/dev/null
 fi
 
 # 4. Apply migrations from the deployed build (spec §14 order).
 cd "$APP_DIR/current"
-set -a
-. "$APP_DIR/photo-vault.env"
-set +a
-node dist/db/migrate.js
+DB_URL="$(env_file_value DATABASE_URL)"
+[ -n "$DB_URL" ] || {
+	echo "==> DATABASE_URL missing in $APP_DIR/photo-vault.env" >&2
+	exit 1
+}
+DATABASE_URL="$DB_URL" node dist/db/migrate.js
 
 # 5. Restart the service (root, or passwordless sudo for the SSH user).
 if ! systemctl restart "$SERVICE_NAME" 2>/dev/null; then
