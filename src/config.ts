@@ -39,6 +39,8 @@ export interface AppConfig {
 	/** In-memory per-IP rate limit for the OAuth endpoints. */
 	authRateLimitMax: number;
 	authRateLimitWindowSeconds: number;
+	uploadRateLimitMax: number;
+	uploadRateLimitWindowSeconds: number;
 	adminEmails: readonly string[];
 	vaultName: string;
 	r2: {
@@ -185,6 +187,11 @@ export function loadConfig(
 		"AUTH_RATE_LIMIT_WINDOW_SECONDS",
 		60,
 	);
+	const uploadRateLimitMax = readPositiveInt("UPLOAD_RATE_LIMIT_MAX", 300);
+	const uploadRateLimitWindowSeconds = readPositiveInt(
+		"UPLOAD_RATE_LIMIT_WINDOW_SECONDS",
+		60,
+	);
 	const adminEmails = (env.APP_ADMIN_EMAILS ?? "")
 		.split(",")
 		.map((email) => email.trim().toLowerCase())
@@ -253,6 +260,8 @@ export function loadConfig(
 		sessionTtlDays,
 		authRateLimitMax,
 		authRateLimitWindowSeconds,
+		uploadRateLimitMax,
+		uploadRateLimitWindowSeconds,
 		adminEmails,
 		vaultName,
 		r2,

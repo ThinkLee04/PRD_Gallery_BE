@@ -27,6 +27,8 @@ describeDb("gallery authorization and privacy", () => {
 		sessionTtlDays: 30,
 		authRateLimitMax: 1000,
 		authRateLimitWindowSeconds: 60,
+		uploadRateLimitMax: 300,
+		uploadRateLimitWindowSeconds: 60,
 		adminEmails: [],
 		vaultName: "Test",
 		r2: null,

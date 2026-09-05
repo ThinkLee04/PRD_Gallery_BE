@@ -44,6 +44,8 @@ describe("loadConfig", () => {
 			sessionTtlDays: 30,
 			authRateLimitMax: 30,
 			authRateLimitWindowSeconds: 60,
+			uploadRateLimitMax: 300,
+			uploadRateLimitWindowSeconds: 60,
 		});
 	});
 
@@ -64,6 +66,8 @@ describe("loadConfig", () => {
 				SESSION_TTL_DAYS: "14",
 				AUTH_RATE_LIMIT_MAX: "5",
 				AUTH_RATE_LIMIT_WINDOW_SECONDS: "30",
+				UPLOAD_RATE_LIMIT_MAX: "450",
+				UPLOAD_RATE_LIMIT_WINDOW_SECONDS: "90",
 				APP_ADMIN_EMAILS: "admin@example.com",
 				SINGLE_VAULT_NAME: "Friends",
 				R2_ENDPOINT: "https://account.r2.cloudflarestorage.com",
@@ -88,6 +92,8 @@ describe("loadConfig", () => {
 			sessionTtlDays: 14,
 			authRateLimitMax: 5,
 			authRateLimitWindowSeconds: 30,
+			uploadRateLimitMax: 450,
+			uploadRateLimitWindowSeconds: 90,
 			adminEmails: ["admin@example.com"],
 			vaultName: "Friends",
 			r2: {

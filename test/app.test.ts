@@ -18,6 +18,8 @@ const TEST_CONFIG: AppConfig = {
 	sessionTtlDays: 30,
 	authRateLimitMax: 10_000,
 	authRateLimitWindowSeconds: 60,
+	uploadRateLimitMax: 300,
+	uploadRateLimitWindowSeconds: 60,
 	adminEmails: [],
 	vaultName: "Photo Vault",
 	r2: null,

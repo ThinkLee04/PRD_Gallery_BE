@@ -6,23 +6,15 @@ export interface RateLimitOptions {
 	windowMs: number;
 }
 
-/**
- * Minimal single-instance in-memory sliding-window limiter for the OAuth
- * endpoints (spec §12). A shared auth plugin is deliberately not introduced;
- * vaults/photos rate limiting can be added later where needed.
- */
-export function createRateLimitHook(options: RateLimitOptions) {
+export function createRateLimiter(options: RateLimitOptions) {
 	const { max, windowMs } = options;
 	const hits = new Map<string, number[]>();
 
-	return async function rateLimitHook(
-		request: FastifyRequest,
-		_reply: FastifyReply,
-	): Promise<void> {
-		const key = request.ip ?? "unknown";
-		const now = Date.now();
+	return function checkRateLimit(key: string, now = Date.now()): void {
 		const cutoff = now - windowMs;
-		const recent = (hits.get(key) ?? []).filter((t) => t > cutoff);
+		const recent = (hits.get(key) ?? []).filter(
+			(timestamp) => timestamp > cutoff,
+		);
 		if (recent.length >= max) {
 			hits.set(key, recent);
 			throw new ApiError(
@@ -32,5 +24,21 @@ export function createRateLimitHook(options: RateLimitOptions) {
 		}
 		recent.push(now);
 		hits.set(key, recent);
+	};
+}
+
+/**
+ * Minimal single-instance in-memory sliding-window limiter for the OAuth
+ * endpoints (spec §12). A shared auth plugin is deliberately not introduced;
+ * vaults/photos rate limiting can be added later where needed.
+ */
+export function createRateLimitHook(options: RateLimitOptions) {
+	const checkRateLimit = createRateLimiter(options);
+
+	return async function rateLimitHook(
+		request: FastifyRequest,
+		_reply: FastifyReply,
+	): Promise<void> {
+		checkRateLimit(request.ip ?? "unknown");
 	};
 }
