@@ -1,9 +1,0 @@
-# Caddy serves ONLY the API — the SPA is hosted on Vercel (a different origin).
-# Install: sudo apt install -y caddy ; place this at /etc/caddy/Caddyfile.
-# Caddy auto-provisions TLS for api.example.com (HTTP -> HTTPS automatic).
-# The API stays bound to 127.0.0.1:3000 via HOST/PORT in photo-vault.env.
-
-api.example.com {
-	encode zstd gzip
-	reverse_proxy 127.0.0.1:3000
-}
