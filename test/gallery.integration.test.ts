@@ -44,6 +44,7 @@ describeDb("gallery authorization and privacy", () => {
 	let memberId: string;
 	let outsiderId: string;
 	let collectionId: string;
+	let ownerCollectionId: string;
 	let photoId: string;
 	let ownerCookie: string;
 	let memberCookie: string;
@@ -88,6 +89,12 @@ describeDb("gallery authorization and privacy", () => {
 				[vaultId, memberId],
 			)
 		).rows[0]?.id as string;
+		ownerCollectionId = (
+			await setupPool.query<{ id: string }>(
+				"INSERT INTO collections (vault_id,name,created_by_user_id) VALUES ($1,'Owner album',$2) RETURNING id",
+				[vaultId, ownerId],
+			)
+		).rows[0]?.id as string;
 		photoId = (
 			await setupPool.query<{ id: string }>(
 				`INSERT INTO photos (vault_id, uploaded_by_user_id, media_type, status, original_object_key, original_filename, content_type, byte_size, width, height)
@@ -122,9 +129,10 @@ describeDb("gallery authorization and privacy", () => {
 		await app?.close();
 		await closePool();
 		if (setupPool) {
-			await setupPool.query("DELETE FROM collections WHERE id = $1", [
-				collectionId,
-			]);
+			await setupPool.query(
+				"DELETE FROM collections WHERE id = ANY($1::uuid[])",
+				[[collectionId, ownerCollectionId]],
+			);
 			await setupPool.query("DELETE FROM photos WHERE id = $1", [photoId]);
 			await setupPool.query("DELETE FROM vaults WHERE id = $1", [vaultId]);
 			await setupPool.query("DELETE FROM users WHERE id = ANY($1::uuid[])", [
@@ -158,6 +166,128 @@ describeDb("gallery authorization and privacy", () => {
 		});
 		expect(uploaders.statusCode).toBe(404);
 		expect(uploaders.json().error.code).toBe("NOT_FOUND");
+
+		for (const mutation of [
+			{
+				method: "PATCH" as const,
+				url: `/v1/collections/${ownerCollectionId}`,
+				payload: { name: "Not allowed" },
+			},
+			{
+				method: "DELETE" as const,
+				url: `/v1/collections/${ownerCollectionId}/photos/${photoId}`,
+			},
+			{
+				method: "POST" as const,
+				url: `/v1/collections/${ownerCollectionId}/uploads`,
+				payload: {
+					fileName: "blocked.jpg",
+					byteSize: 10,
+					contentType: "image/jpeg",
+				},
+			},
+		]) {
+			const denied = await app.inject({
+				...mutation,
+				headers: { cookie: outsiderCookie },
+			});
+			expect(denied.statusCode).toBe(404);
+			expect(denied.json().error.code).toBe("NOT_FOUND");
+		}
+	});
+
+	it("lets an approved member fully manage another member's shared album", async () => {
+		const detail = await app.inject({
+			method: "GET",
+			url: `/v1/collections/${ownerCollectionId}`,
+			headers: { cookie: memberCookie },
+		});
+		expect(detail.statusCode).toBe(200);
+		expect(detail.json().data.canManage).toBe(true);
+
+		const edited = await app.inject({
+			method: "PATCH",
+			url: `/v1/collections/${ownerCollectionId}`,
+			headers: { cookie: memberCookie },
+			payload: { name: "Shared album" },
+		});
+		expect(edited.statusCode).toBe(200);
+
+		const added = await app.inject({
+			method: "PUT",
+			url: `/v1/collections/${ownerCollectionId}/photos/${photoId}`,
+			headers: { cookie: memberCookie },
+		});
+		expect(added.statusCode).toBe(200);
+
+		const removed = await app.inject({
+			method: "DELETE",
+			url: `/v1/collections/${ownerCollectionId}/photos/${photoId}`,
+			headers: { cookie: memberCookie },
+		});
+		expect(removed.statusCode).toBe(204);
+		const original = await setupPool.query<{ count: number }>(
+			"SELECT count(*)::int AS count FROM photos WHERE id = $1",
+			[photoId],
+		);
+		expect(original.rows[0]?.count).toBe(1);
+
+		const archived = await app.inject({
+			method: "POST",
+			url: `/v1/collections/${ownerCollectionId}/archive`,
+			headers: { cookie: memberCookie },
+		});
+		expect(archived.statusCode).toBe(200);
+		const archivedList = await app.inject({
+			method: "GET",
+			url: "/v1/collections?state=archived",
+			headers: { cookie: memberCookie },
+		});
+		expect(
+			archivedList
+				.json()
+				.data.some((album: { id: string }) => album.id === ownerCollectionId),
+		).toBe(true);
+		const restored = await app.inject({
+			method: "POST",
+			url: `/v1/collections/${ownerCollectionId}/restore`,
+			headers: { cookie: memberCookie },
+		});
+		expect(restored.statusCode).toBe(200);
+
+		const previousStorage = config.r2;
+		config.r2 = {
+			endpoint: "https://test-account.r2.cloudflarestorage.com",
+			accessKeyId: "test-access-key",
+			secretAccessKey: "test-secret-key",
+			bucket: "test-bucket",
+		};
+		let uploadedPhotoId: string | undefined;
+		try {
+			const upload = await app.inject({
+				method: "POST",
+				url: `/v1/collections/${ownerCollectionId}/uploads`,
+				headers: { cookie: memberCookie },
+				payload: {
+					fileName: "member-upload.jpg",
+					byteSize: 10,
+					contentType: "image/jpeg",
+				},
+			});
+			expect(upload.statusCode).toBe(201);
+			uploadedPhotoId = upload.json().data.photoId;
+			const uploaded = await setupPool.query<{ uploadedByUserId: string }>(
+				'SELECT uploaded_by_user_id AS "uploadedByUserId" FROM photos WHERE id = $1',
+				[uploadedPhotoId],
+			);
+			expect(uploaded.rows[0]?.uploadedByUserId).toBe(memberId);
+		} finally {
+			config.r2 = previousStorage;
+			if (uploadedPhotoId)
+				await setupPool.query("DELETE FROM photos WHERE id = $1", [
+					uploadedPhotoId,
+				]);
+		}
 	});
 
 	it("stores the album event date and supports scoped gallery views", async () => {

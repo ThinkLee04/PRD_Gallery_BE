@@ -81,8 +81,8 @@ export async function registerCollectionsModule(
 			state === "active" ? "c.created_at" : "c.archived_at";
 		const visibility =
 			state === "active"
-				? "c.archived_at IS NULL AND ($3::uuid IS NOT NULL) AND ($4::text IS NOT NULL)"
-				: "c.archived_at IS NOT NULL AND (c.created_by_user_id = $3 OR $4 = 'OWNER')";
+				? "c.archived_at IS NULL"
+				: "c.archived_at IS NOT NULL";
 		const result = await database(config).query<{
 			id: string;
 			name: string;
@@ -117,16 +117,9 @@ export async function registerCollectionsModule(
 				 ORDER BY cp.position, cp.photo_id LIMIT 1
 			 ) cover ON true
 			 WHERE c.vault_id = $1 AND ${visibility}
-			 AND ($2::timestamptz IS NULL OR (${timestampColumn}, c.id) < ($2::timestamptz, $5::uuid))
-			 ORDER BY ${timestampColumn} DESC, c.id DESC LIMIT $6`,
-			[
-				member.vaultId,
-				cursor?.at ?? null,
-				member.userId,
-				member.role,
-				cursor?.id ?? null,
-				limit + 1,
-			],
+			 AND ($2::timestamptz IS NULL OR (${timestampColumn}, c.id) < ($2::timestamptz, $3::uuid))
+			 ORDER BY ${timestampColumn} DESC, c.id DESC LIMIT $4`,
+			[member.vaultId, cursor?.at ?? null, cursor?.id ?? null, limit + 1],
 		);
 		const hasMore = result.rows.length > limit;
 		const rows = await Promise.all(

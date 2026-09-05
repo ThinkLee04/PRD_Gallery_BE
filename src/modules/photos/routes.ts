@@ -329,10 +329,7 @@ export async function registerPhotosModule(
 			member.vaultId,
 			photoId,
 		);
-		if (
-			photo === null ||
-			(member.role !== "OWNER" && photo.uploadedByUserId !== member.userId)
-		)
+		if (photo === null)
 			throw new ApiError(ErrorCodes.NOT_FOUND, "Photo not found.");
 		if (photo.status !== "FAILED")
 			throw new ApiError(ErrorCodes.CONFLICT, "Photo is not retryable.");
