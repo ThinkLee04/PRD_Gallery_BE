@@ -68,7 +68,15 @@ describeDb("auth integration (PostgreSQL)", () => {
 	const email = `${subject}@example.com`;
 	let app: FastifyInstance;
 
+	// The auth client captures `fetch` when the app is built (GoogleOAuth binds
+	// its fetchFn at construction), so Google must be stubbed BEFORE buildApp.
+	// The fake handler responds with whichever ID token the test has minted so
+	// far; it is set after reading the login-state cookie's nonce below.
+	let pendingIdToken = "";
 	beforeAll(async () => {
+		vi.stubGlobal("fetch", (input: string | URL | Request) =>
+			fakeGoogleFetch(pendingIdToken)(input),
+		);
 		app = await buildApp(config);
 	});
 
@@ -105,7 +113,7 @@ describeDb("auth integration (PostgreSQL)", () => {
 			name: "Integration User",
 			picture: "https://example.com/avatar.png",
 		});
-		vi.stubGlobal("fetch", fakeGoogleFetch(idToken));
+		pendingIdToken = idToken;
 
 		const callback = await app.inject({
 			method: "GET",
