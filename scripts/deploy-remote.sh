@@ -29,6 +29,22 @@ if ! command -v npm >/dev/null 2>&1; then
 	exit 1
 fi
 
+# Export config keys that loadConfig() validates at boot (migrate needs them
+# too). Values are read as raw text (never shell-sourced), so '&' etc. stay
+# intact. Fail fast with a clear message when one is missing.
+missing=0
+for key in DATABASE_URL APP_BASE_URL GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REDIRECT_URI SESSION_SECRET; do
+	val="$(env_file_value "$key")"
+	if [ -z "$val" ]; then
+		echo "==> $key missing in $APP_DIR/photo-vault.env" >&2
+		missing=1
+	else
+		export "$key=$val"
+	fi
+
+done
+[ "$missing" -eq 0 ] || exit 1
+
 # 1. Production dependencies only (dev deps are never shipped).
 cd "$RELEASE"
 npm ci --omit=dev --no-audit --no-fund
