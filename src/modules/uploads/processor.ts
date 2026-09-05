@@ -1,5 +1,5 @@
 import { execFile, execFileSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -27,6 +27,20 @@ export function hasFfprobe(): boolean {
 	}
 }
 
+export function hasHeifConvert(): boolean {
+	try {
+		execFileSync("heif-convert", ["--help"], { stdio: "ignore" });
+		return true;
+	} catch (error) {
+		return (
+			typeof error === "object" &&
+			error !== null &&
+			"status" in error &&
+			typeof error.status === "number"
+		);
+	}
+}
+
 export async function canProcessUpload(
 	mediaType: "IMAGE" | "VIDEO",
 	contentType: string,
@@ -35,7 +49,7 @@ export async function canProcessUpload(
 	const sharpModule = await loadSharp();
 	if (sharpModule === null) return false;
 	if (["image/heic", "image/heif"].includes(contentType))
-		return sharpModule.default.versions.heif !== undefined;
+		return hasHeifConvert();
 	return true;
 }
 
@@ -204,6 +218,21 @@ async function extractVideo(
 	}
 }
 
+async function decodeHeic(buffer: Buffer): Promise<Buffer> {
+	const directory = await mkdtemp(join(tmpdir(), "photo-vault-heic-"));
+	const inputPath = join(directory, "original.heic");
+	const outputPath = join(directory, "decoded.png");
+	try {
+		await writeFile(inputPath, buffer);
+		await execFileAsync("heif-convert", [inputPath, outputPath], {
+			maxBuffer: 1024 * 1024,
+		});
+		return await readFile(outputPath);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+}
+
 async function processPhoto(
 	pool: pg.Pool,
 	config: AppConfig,
@@ -254,7 +283,10 @@ async function processPhoto(
 	const sharpModule = await loadSharp();
 	if (sharpModule === null) throw new Error("IMAGE_PROCESSOR_UNAVAILABLE");
 	const sharp = sharpModule.default;
-	const source = sharp(buffer, { failOn: "error" }).rotate();
+	const processingBuffer = ["image/heic", "image/heif"].includes(detected.mime)
+		? await decodeHeic(buffer)
+		: buffer;
+	const source = sharp(processingBuffer, { failOn: "error" }).rotate();
 	const metadata = await source.metadata();
 	const exif = await parseCaptureExif(buffer);
 	const capture = selectCaptureMetadata(exif, photo.clientLastModifiedAt);
@@ -265,7 +297,7 @@ async function processPhoto(
 		{ kind: "THUMBNAIL_MD", width: 1280, suffix: "thumb-md.webp" },
 		{ kind: "DISPLAY", width: 2560, suffix: "display.webp" },
 	] as const) {
-		const output = await sharp(buffer)
+		const output = await sharp(processingBuffer)
 			.rotate()
 			.resize({ width: variant.width, withoutEnlargement: true })
 			.webp({ quality: 82 })
