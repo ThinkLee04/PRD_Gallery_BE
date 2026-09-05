@@ -38,6 +38,8 @@ function makeConfig(databaseUrl: string): AppConfig {
 		sessionTtlDays: 30,
 		authRateLimitMax: 1_000_000,
 		authRateLimitWindowSeconds: 60,
+		uploadRateLimitMax: 300,
+		uploadRateLimitWindowSeconds: 60,
 		adminEmails: [],
 		vaultName: "Photo Vault",
 		r2: null,

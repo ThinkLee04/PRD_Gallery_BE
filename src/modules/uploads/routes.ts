@@ -4,7 +4,7 @@ import type { FastifyInstance } from "fastify";
 import type { AppConfig } from "../../config.js";
 import { getPool } from "../../db/pool.js";
 import { ApiError, ErrorCodes } from "../../lib/errors.js";
-import { createRateLimitHook } from "../auth/rate-limit.js";
+import { createRateLimiter } from "../auth/rate-limit.js";
 import {
 	requireApprovedMember,
 	requireCollection,
@@ -57,21 +57,25 @@ export async function registerUploadsModule(
 	if (config.nodeEnv === "production" && config.r2 !== null && !hasFfprobe()) {
 		app.log.warn("ffprobe is unavailable; video uploads will be rejected");
 	}
-	const uploadRateLimit = createRateLimitHook({ max: 60, windowMs: 60_000 });
+	const checkUploadRateLimit = createRateLimiter({
+		max: config.uploadRateLimitMax,
+		windowMs: config.uploadRateLimitWindowSeconds * 1000,
+	});
 	app.post(
 		"/v1/collections/:collectionId/uploads",
 		{
-			preHandler: uploadRateLimit,
 			schema: {
 				body: Type.Object({
 					fileName: Type.String({ minLength: 1, maxLength: 500 }),
 					byteSize: Type.Integer({ minimum: 1 }),
 					contentType: Type.String({ minLength: 1, maxLength: 100 }),
+					lastModifiedAt: Type.Optional(Type.Integer({ minimum: 1 })),
 				}),
 			},
 		},
 		async (request, reply) => {
 			const member = await requireApprovedMember(request, config);
+			checkUploadRateLimit(member.userId);
 			const { collectionId } = request.params as { collectionId: string };
 			await requireCollection(database(config), member, collectionId, {
 				manage: true,
@@ -80,7 +84,21 @@ export async function registerUploadsModule(
 				fileName: string;
 				byteSize: number;
 				contentType: string;
+				lastModifiedAt?: number;
 			};
+			const clientLastModifiedAt = body.lastModifiedAt
+				? new Date(body.lastModifiedAt)
+				: null;
+			if (
+				clientLastModifiedAt !== null &&
+				(Number.isNaN(clientLastModifiedAt.getTime()) ||
+					clientLastModifiedAt.getUTCFullYear() < 1990 ||
+					clientLastModifiedAt.getTime() > Date.now() + 86_400_000)
+			)
+				throw new ApiError(
+					ErrorCodes.VALIDATION_ERROR,
+					"Invalid file modification time.",
+				);
 			const contentType = body.contentType.toLowerCase().split(";")[0] ?? "";
 			const mediaType = TYPES.get(contentType);
 			if (mediaType === undefined)
@@ -116,7 +134,8 @@ export async function registerUploadsModule(
 				);
 				await client.query(
 					`INSERT INTO photos (id, vault_id, uploaded_by_user_id, media_type, status, original_object_key,
-				 original_filename, content_type, byte_size) VALUES ($1, $2, $3, $4, 'PENDING_UPLOAD', $5, $6, $7, $8)`,
+				 original_filename, content_type, byte_size, metadata)
+				 VALUES ($1, $2, $3, $4, 'PENDING_UPLOAD', $5, $6, $7, $8, $9::jsonb)`,
 					[
 						photoId,
 						member.vaultId,
@@ -126,6 +145,11 @@ export async function registerUploadsModule(
 						safeFileName(body.fileName),
 						contentType,
 						body.byteSize,
+						JSON.stringify(
+							clientLastModifiedAt === null
+								? {}
+								: { clientLastModifiedAt: clientLastModifiedAt.toISOString() },
+						),
 					],
 				);
 				await client.query(
