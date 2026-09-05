@@ -10,7 +10,11 @@ import {
 	requireCollection,
 } from "../memberships/service.js";
 import { findAccessiblePhoto } from "../photos/gallery.js";
-import { assertMediaRuntime, triggerProcessing } from "./processor.js";
+import {
+	canProcessUpload,
+	hasFfprobe,
+	triggerProcessing,
+} from "./processor.js";
 import { headObject, signUpload } from "./storage.js";
 
 const TYPES = new Map<string, "IMAGE" | "VIDEO">([
@@ -50,7 +54,9 @@ export async function registerUploadsModule(
 	app: FastifyInstance,
 	config: AppConfig,
 ): Promise<void> {
-	assertMediaRuntime(config);
+	if (config.nodeEnv === "production" && config.r2 !== null && !hasFfprobe()) {
+		app.log.warn("ffprobe is unavailable; video uploads will be rejected");
+	}
 	const uploadRateLimit = createRateLimitHook({ max: 60, windowMs: 60_000 });
 	app.post(
 		"/v1/collections/:collectionId/uploads",
@@ -81,6 +87,13 @@ export async function registerUploadsModule(
 				throw new ApiError(
 					ErrorCodes.VALIDATION_ERROR,
 					"Unsupported media type.",
+				);
+			if (!(await canProcessUpload(mediaType, contentType)))
+				throw new ApiError(
+					ErrorCodes.INTERNAL_ERROR,
+					mediaType === "IMAGE"
+						? "Image uploads are temporarily unavailable on this server."
+						: "Video uploads are temporarily unavailable on this server.",
 				);
 			const maximum =
 				mediaType === "IMAGE"

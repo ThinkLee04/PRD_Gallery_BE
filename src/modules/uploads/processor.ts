@@ -6,22 +6,37 @@ import { promisify } from "node:util";
 import * as exifr from "exifr";
 import { fileTypeFromBuffer } from "file-type";
 import type pg from "pg";
-import sharp from "sharp";
 import type { AppConfig } from "../../config.js";
 import { readObject, writeAsset } from "./storage.js";
 
 const execFileAsync = promisify(execFile);
 let running = false;
+let sharpPromise: Promise<typeof import("sharp") | null> | null = null;
 
-export function assertMediaRuntime(config: AppConfig): void {
-	if (config.nodeEnv !== "production" || config.r2 === null) return;
-	if (sharp.versions.heif === undefined)
-		throw new Error("Sharp was installed without HEIF support.");
+async function loadSharp(): Promise<typeof import("sharp") | null> {
+	sharpPromise ??= import("sharp").catch(() => null);
+	return sharpPromise;
+}
+
+export function hasFfprobe(): boolean {
 	try {
 		execFileSync("ffprobe", ["-version"], { stdio: "ignore" });
+		return true;
 	} catch {
-		throw new Error("ffprobe is required for video metadata processing.");
+		return false;
 	}
+}
+
+export async function canProcessUpload(
+	mediaType: "IMAGE" | "VIDEO",
+	contentType: string,
+): Promise<boolean> {
+	if (mediaType === "VIDEO") return hasFfprobe();
+	const sharpModule = await loadSharp();
+	if (sharpModule === null) return false;
+	if (["image/heic", "image/heif"].includes(contentType))
+		return sharpModule.default.versions.heif !== undefined;
+	return true;
 }
 
 interface PendingPhoto {
@@ -110,6 +125,9 @@ async function processPhoto(
 		return;
 	}
 
+	const sharpModule = await loadSharp();
+	if (sharpModule === null) throw new Error("IMAGE_PROCESSOR_UNAVAILABLE");
+	const sharp = sharpModule.default;
 	const source = sharp(buffer, { failOn: "error" }).rotate();
 	const metadata = await source.metadata();
 	const exif = (await exifr
