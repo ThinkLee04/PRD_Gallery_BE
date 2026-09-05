@@ -29,6 +29,19 @@ ffprobe -version
 node -e "const sharp=require('sharp'); console.log(sharp.versions)"
 ```
 
+Current Sharp Linux x64 binaries require an x86-64-v2/SSE4.2-capable CPU.
+Check the VPS before deployment with:
+
+```bash
+grep -m1 '^flags' /proc/cpuinfo | grep -qw sse4_2 && echo supported || echo unsupported
+```
+
+The API deliberately starts when Sharp cannot load so authentication and
+browsing remain available, but it rejects image upload initialization before
+creating a photo or signing an R2 URL. Move the VPS to a compatible CPU before
+enabling image uploads; do not advertise HEIC unless `sharp.versions.heif` is
+present.
+
 Keep the R2 bucket private. Configure its CORS policy for the exact frontend
 origin with `GET`, `PUT`, and `HEAD`, allow `Content-Type`, and expose `ETag`.
 
