@@ -13,6 +13,7 @@ import { findAccessiblePhoto } from "../photos/gallery.js";
 import {
 	canProcessUpload,
 	hasFfprobe,
+	hasHeifConvert,
 	triggerProcessing,
 } from "./processor.js";
 import { headObject, signUpload } from "./storage.js";
@@ -56,6 +57,13 @@ export async function registerUploadsModule(
 ): Promise<void> {
 	if (config.nodeEnv === "production" && config.r2 !== null && !hasFfprobe()) {
 		app.log.warn("ffprobe is unavailable; video uploads will be rejected");
+	}
+	if (
+		config.nodeEnv === "production" &&
+		config.r2 !== null &&
+		!hasHeifConvert()
+	) {
+		app.log.warn("heif-convert is unavailable; HEIC uploads will be rejected");
 	}
 	const checkUploadRateLimit = createRateLimiter({
 		max: config.uploadRateLimitMax,

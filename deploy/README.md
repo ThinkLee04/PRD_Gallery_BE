@@ -20,12 +20,13 @@ sudo apt-get install -y nodejs
 node -v && npm -v
 ```
 
-Install `ffprobe` for video metadata extraction and verify Sharp/HEIC support
-on the target host before enabling uploads:
+Install `ffprobe` for video metadata extraction and the system HEVC decoder
+used for HEIC preprocessing before enabling uploads:
 
 ```bash
-sudo apt-get install -y ffmpeg
+sudo apt-get install -y ffmpeg libheif-examples
 ffprobe -version
+heif-convert --help
 node -e "const sharp=require('sharp'); console.log(sharp.versions)"
 ```
 
@@ -39,8 +40,8 @@ grep -m1 '^flags' /proc/cpuinfo | grep -qw sse4_2 && echo supported || echo unsu
 The API deliberately starts when Sharp cannot load so authentication and
 browsing remain available, but it rejects image upload initialization before
 creating a photo or signing an R2 URL. Move the VPS to a compatible CPU before
-enabling image uploads; do not advertise HEIC unless `sharp.versions.heif` is
-present.
+enabling image uploads. HEIC also requires `heif-convert`; the API rejects
+HEIC initialization clearly when it is absent.
 
 Keep the R2 bucket private. Configure its CORS policy for the exact frontend
 origin with `GET`, `PUT`, and `HEAD`, allow `Content-Type`, and expose `ETag`.
