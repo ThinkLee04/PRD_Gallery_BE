@@ -150,28 +150,61 @@ describeDb("gallery authorization and privacy", () => {
 		});
 		expect(gallery.statusCode).toBe(404);
 		expect(gallery.json().error.code).toBe("NOT_FOUND");
+
+		const uploaders = await app.inject({
+			method: "GET",
+			url: `/v1/collections/${collectionId}/uploaders`,
+			headers: { cookie: outsiderCookie },
+		});
+		expect(uploaders.statusCode).toBe(404);
+		expect(uploaders.json().error.code).toBe("NOT_FOUND");
 	});
 
-	it("stores the album event time and supports scoped gallery views", async () => {
-		const eventAt = "2026-09-05T14:30:00.000Z";
+	it("stores the album event date and supports scoped gallery views", async () => {
+		const eventDate = "2026-09-05";
 		const updated = await app.inject({
 			method: "PATCH",
 			url: `/v1/collections/${collectionId}`,
 			headers: { cookie: memberCookie },
-			payload: { eventAt },
+			payload: { eventDate },
 		});
 		expect(updated.statusCode).toBe(200);
-		expect(updated.json().data.eventAt).toBe(eventAt);
+		expect(updated.json().data.eventDate).toBe(eventDate);
+
+		const uploaders = await app.inject({
+			method: "GET",
+			url: `/v1/collections/${collectionId}/uploaders`,
+			headers: { cookie: memberCookie },
+		});
+		expect(uploaders.statusCode).toBe(200);
+		expect(uploaders.json().data).toEqual([
+			expect.objectContaining({ id: memberId, photoCount: 1 }),
+		]);
 
 		const images = await app.inject({
 			method: "GET",
-			url: `/v1/collections/${collectionId}/photos?sort=captured_at&media=image&groupBy=uploader`,
+			url: `/v1/collections/${collectionId}/photos?sort=captured_desc&media=image&uploaderId=${memberId}`,
 			headers: { cookie: memberCookie },
 		});
 		expect(images.statusCode).toBe(200);
 		expect(images.json().data.map((photo: { id: string }) => photo.id)).toEqual(
 			[photoId],
 		);
+		for (const sort of [
+			"captured_asc",
+			"uploaded_asc",
+			"uploaded_desc",
+			"alphabet_asc",
+			"alphabet_desc",
+		]) {
+			const sorted = await app.inject({
+				method: "GET",
+				url: `/v1/collections/${collectionId}/photos?sort=${sort}`,
+				headers: { cookie: memberCookie },
+			});
+			expect(sorted.statusCode).toBe(200);
+			expect(sorted.json().data).toHaveLength(1);
+		}
 
 		const videos = await app.inject({
 			method: "GET",
@@ -183,7 +216,7 @@ describeDb("gallery authorization and privacy", () => {
 	});
 
 	it("rejects unsupported gallery controls", async () => {
-		for (const query of ["sort=random", "media=audio", "groupBy=date"]) {
+		for (const query of ["sort=random", "media=audio", "uploaderId=invalid"]) {
 			const response = await app.inject({
 				method: "GET",
 				url: `/v1/collections/${collectionId}/photos?${query}`,
