@@ -27,7 +27,17 @@ const CollectionBody = Type.Object({
 	description: Type.Optional(
 		Type.Union([Type.String({ maxLength: 2000 }), Type.Null()]),
 	),
+	eventAt: Type.Optional(
+		Type.Union([Type.String({ minLength: 20, maxLength: 40 }), Type.Null()]),
+	),
 });
+
+function eventAtValue(value: string | null | undefined): string | null {
+	if (value === undefined || value === null || value === "") return null;
+	if (!isIsoDate(value))
+		throw new ApiError(ErrorCodes.VALIDATION_ERROR, "Invalid event time.");
+	return new Date(value).toISOString();
+}
 
 function database(config: AppConfig) {
 	const pool = getPool(config);
@@ -77,6 +87,7 @@ export async function registerCollectionsModule(
 			createdAt: string;
 			updatedAt: string;
 			archivedAt: string | null;
+			eventAt: string | null;
 			cursorAt: string;
 			photoCount: string;
 			creatorName: string;
@@ -85,7 +96,7 @@ export async function registerCollectionsModule(
 			coverWidth: number | null;
 			coverHeight: number | null;
 		}>(
-			`SELECT c.id, c.name, c.description, c.created_by_user_id AS "createdByUserId",
+			`SELECT c.id, c.name, c.description, c.event_at AS "eventAt", c.created_by_user_id AS "createdByUserId",
 			 c.created_at AS "createdAt", c.updated_at AS "updatedAt", c.archived_at AS "archivedAt",
 			 ${timestampColumn} AS "cursorAt",
 			 (SELECT count(*)::text FROM collection_photos cp0 WHERE cp0.collection_id = c.id) AS "photoCount",
@@ -161,6 +172,7 @@ export async function registerCollectionsModule(
 			const body = request.body as {
 				name: string;
 				description?: string | null;
+				eventAt?: string | null;
 			};
 			const name = body.name.trim();
 			if (name === "")
@@ -169,9 +181,16 @@ export async function registerCollectionsModule(
 					"Collection name is required.",
 				);
 			const result = await database(config).query(
-				`INSERT INTO collections (vault_id, name, description, created_by_user_id)
-			 VALUES ($1, $2, $3, $4) RETURNING id, name, description, created_at AS "createdAt"`,
-				[member.vaultId, name, body.description?.trim() || null, member.userId],
+				`INSERT INTO collections (vault_id, name, description, event_at, created_by_user_id)
+			 VALUES ($1, $2, $3, $4, $5)
+			 RETURNING id, name, description, event_at AS "eventAt", created_at AS "createdAt"`,
+				[
+					member.vaultId,
+					name,
+					body.description?.trim() || null,
+					eventAtValue(body.eventAt),
+					member.userId,
+				],
 			);
 			return reply
 				.code(201)
@@ -196,7 +215,7 @@ export async function registerCollectionsModule(
 		)
 			throw new ApiError(ErrorCodes.NOT_FOUND, "Collection not found.");
 		const result = await database(config).query(
-			`SELECT c.id, c.name, c.description, c.created_by_user_id AS "createdByUserId",
+			`SELECT c.id, c.name, c.description, c.event_at AS "eventAt", c.created_by_user_id AS "createdByUserId",
 			 c.created_at AS "createdAt", c.updated_at AS "updatedAt", c.archived_at AS "archivedAt",
 			 c.order_version::text AS "orderVersion", count(cp.photo_id)::int AS "photoCount"
 			 FROM collections c LEFT JOIN collection_photos cp ON cp.collection_id = c.id
@@ -225,8 +244,13 @@ export async function registerCollectionsModule(
 			const body = request.body as {
 				name?: string;
 				description?: string | null;
+				eventAt?: string | null;
 			};
-			if (body.name === undefined && body.description === undefined)
+			if (
+				body.name === undefined &&
+				body.description === undefined &&
+				body.eventAt === undefined
+			)
 				throw new ApiError(ErrorCodes.VALIDATION_ERROR, "No changes supplied.");
 			if (body.name !== undefined && body.name.trim() === "")
 				throw new ApiError(
@@ -234,13 +258,18 @@ export async function registerCollectionsModule(
 					"Collection name is required.",
 				);
 			const result = await database(config).query(
-				`UPDATE collections SET name = COALESCE($2, name), description = CASE WHEN $3 THEN $4 ELSE description END,
-			 updated_at = now() WHERE id = $1 RETURNING id, name, description, updated_at AS "updatedAt"`,
+				`UPDATE collections SET name = COALESCE($2, name),
+			 description = CASE WHEN $3 THEN $4 ELSE description END,
+			 event_at = CASE WHEN $5 THEN $6 ELSE event_at END,
+			 updated_at = now() WHERE id = $1
+			 RETURNING id, name, description, event_at AS "eventAt", updated_at AS "updatedAt"`,
 				[
 					collectionId,
 					body.name?.trim() || null,
 					body.description !== undefined,
 					body.description?.trim() || null,
+					body.eventAt !== undefined,
+					eventAtValue(body.eventAt),
 				],
 			);
 			return { data: result.rows[0] };

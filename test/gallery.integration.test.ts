@@ -142,6 +142,56 @@ describeDb("gallery authorization and privacy", () => {
 		});
 		expect(response.statusCode).toBe(404);
 		expect(response.json().error.code).toBe("NOT_FOUND");
+
+		const gallery = await app.inject({
+			method: "GET",
+			url: `/v1/collections/${collectionId}/photos`,
+			headers: { cookie: outsiderCookie },
+		});
+		expect(gallery.statusCode).toBe(404);
+		expect(gallery.json().error.code).toBe("NOT_FOUND");
+	});
+
+	it("stores the album event time and supports scoped gallery views", async () => {
+		const eventAt = "2026-09-05T14:30:00.000Z";
+		const updated = await app.inject({
+			method: "PATCH",
+			url: `/v1/collections/${collectionId}`,
+			headers: { cookie: memberCookie },
+			payload: { eventAt },
+		});
+		expect(updated.statusCode).toBe(200);
+		expect(updated.json().data.eventAt).toBe(eventAt);
+
+		const images = await app.inject({
+			method: "GET",
+			url: `/v1/collections/${collectionId}/photos?sort=captured_at&media=image&groupBy=uploader`,
+			headers: { cookie: memberCookie },
+		});
+		expect(images.statusCode).toBe(200);
+		expect(images.json().data.map((photo: { id: string }) => photo.id)).toEqual(
+			[photoId],
+		);
+
+		const videos = await app.inject({
+			method: "GET",
+			url: `/v1/collections/${collectionId}/photos?media=video`,
+			headers: { cookie: memberCookie },
+		});
+		expect(videos.statusCode).toBe(200);
+		expect(videos.json().data).toEqual([]);
+	});
+
+	it("rejects unsupported gallery controls", async () => {
+		for (const query of ["sort=random", "media=audio", "groupBy=date"]) {
+			const response = await app.inject({
+				method: "GET",
+				url: `/v1/collections/${collectionId}/photos?${query}`,
+				headers: { cookie: memberCookie },
+			});
+			expect(response.statusCode).toBe(400);
+			expect(response.json().error.code).toBe("VALIDATION_ERROR");
+		}
 	});
 
 	it("keeps Loved private per user", async () => {
