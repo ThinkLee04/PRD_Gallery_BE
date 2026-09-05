@@ -31,16 +31,20 @@ function database(config: AppConfig) {
 }
 
 interface CollectionCursor {
-	v: 2;
+	v: 4;
 	collectionId: string;
 	orderVersion: string;
-	sort: "captured_at" | "uploaded_at" | "position";
+	sort:
+		| "captured_asc"
+		| "captured_desc"
+		| "uploaded_asc"
+		| "uploaded_desc"
+		| "alphabet_asc"
+		| "alphabet_desc";
 	media: "all" | "image" | "video";
-	groupBy: "none" | "uploader";
+	uploaderId: string | null;
 	sortValue: string;
 	photoId: string;
-	uploaderName?: string;
-	uploaderId?: string;
 }
 
 export async function registerPhotosModule(
@@ -111,6 +115,30 @@ export async function registerPhotosModule(
 		};
 	});
 
+	app.get("/v1/collections/:collectionId/uploaders", async (request, reply) => {
+		const member = await requireApprovedMember(request, config);
+		const { collectionId } = request.params as { collectionId: string };
+		await requireCollection(database(config), member, collectionId);
+		const result = await database(config).query<{
+			id: string;
+			displayName: string;
+			avatarUrl: string | null;
+			photoCount: number;
+		}>(
+			`SELECT u.id, u.display_name AS "displayName", u.avatar_url AS "avatarUrl",
+			 count(*)::int AS "photoCount"
+			 FROM collection_photos cp
+			 JOIN photos p ON p.id = cp.photo_id
+			 JOIN users u ON u.id = p.uploaded_by_user_id
+			 WHERE cp.collection_id = $1
+			 GROUP BY u.id
+			 ORDER BY LOWER(u.display_name) COLLATE "C", u.id`,
+			[collectionId],
+		);
+		reply.header("cache-control", "private, no-store");
+		return { data: result.rows };
+	});
+
 	app.get("/v1/collections/:collectionId/photos", async (request, reply) => {
 		const member = await requireApprovedMember(request, config);
 		const { collectionId } = request.params as { collectionId: string };
@@ -124,33 +152,42 @@ export async function registerPhotosModule(
 			limit?: string;
 			sort?: string;
 			media?: string;
-			groupBy?: string;
+			uploaderId?: string;
 		};
-		const sort = query.sort ?? "captured_at";
+		const sort = query.sort ?? "captured_desc";
 		const media = query.media ?? "all";
-		const groupBy = query.groupBy ?? "none";
-		if (!["captured_at", "uploaded_at", "position"].includes(sort))
+		const uploaderId = query.uploaderId ?? null;
+		if (
+			![
+				"captured_asc",
+				"captured_desc",
+				"uploaded_asc",
+				"uploaded_desc",
+				"alphabet_asc",
+				"alphabet_desc",
+			].includes(sort)
+		)
 			throw new ApiError(ErrorCodes.VALIDATION_ERROR, "Invalid gallery sort.");
 		if (!["all", "image", "video"].includes(media))
 			throw new ApiError(ErrorCodes.VALIDATION_ERROR, "Invalid media filter.");
-		if (!["none", "uploader"].includes(groupBy))
-			throw new ApiError(ErrorCodes.VALIDATION_ERROR, "Invalid gallery group.");
+		if (uploaderId !== null && !isUuid(uploaderId))
+			throw new ApiError(
+				ErrorCodes.VALIDATION_ERROR,
+				"Invalid uploader filter.",
+			);
 		const cursor = decodeCursor<CollectionCursor>(query.cursor);
 		if (cursor !== null) {
 			if (
-				cursor.v !== 2 ||
+				cursor.v !== 4 ||
 				cursor.collectionId !== collectionId ||
 				cursor.sort !== sort ||
 				cursor.media !== media ||
-				cursor.groupBy !== groupBy ||
+				cursor.uploaderId !== uploaderId ||
 				!isUuid(cursor.photoId) ||
 				typeof cursor.sortValue !== "string" ||
-				(sort === "position"
-					? !/^\d+$/.test(cursor.sortValue)
+				(sort.startsWith("alphabet_")
+					? cursor.sortValue.length === 0
 					: Number.isNaN(Date.parse(cursor.sortValue))) ||
-				(groupBy === "uploader" &&
-					(typeof cursor.uploaderName !== "string" ||
-						!isUuid(cursor.uploaderId))) ||
 				typeof cursor.orderVersion !== "string"
 			)
 				throw new ApiError(
@@ -165,38 +202,26 @@ export async function registerPhotosModule(
 		}
 		const limit = pageLimit(query.limit);
 		const select = gallerySelect("$5");
-		const sortExpression =
-			sort === "position"
-				? "cp.position"
-				: sort === "uploaded_at"
-					? "p.created_at"
-					: "COALESCE(p.captured_at, p.created_at)";
-		const sortCast = sort === "position" ? "bigint" : "timestamptz";
-		const direction = sort === "position" ? "ASC" : "DESC";
-		const comparison = sort === "position" ? ">" : "<";
-		const uploaderName = 'LOWER(u.display_name) COLLATE "C"';
-		const cursorCondition =
-			groupBy === "uploader"
-				? `AND ($2::${sortCast} IS NULL OR
-					 ${uploaderName} > $7::text COLLATE "C" OR
-					 (${uploaderName} = $7::text COLLATE "C" AND u.id > $8::uuid) OR
-					 (${uploaderName} = $7::text COLLATE "C" AND u.id = $8::uuid
-					  AND (${sortExpression}, p.id) ${comparison} ($2::${sortCast}, $3::uuid)))`
-				: `AND ($2::${sortCast} IS NULL OR (${sortExpression}, p.id) ${comparison} ($2::${sortCast}, $3::uuid))`;
-		const orderBy =
-			groupBy === "uploader"
-				? `${uploaderName} ASC, u.id ASC, ${sortExpression} ${direction}, p.id ${direction}`
-				: `${sortExpression} ${direction}, p.id ${direction}`;
+		const alphabetic = sort.startsWith("alphabet_");
+		const sortExpression = alphabetic
+			? 'LOWER(p.original_filename) COLLATE "C"'
+			: sort.startsWith("uploaded_")
+				? "p.created_at"
+				: "COALESCE(p.captured_at, p.created_at)";
+		const sortCast = alphabetic ? 'text COLLATE "C"' : "timestamptz";
+		const direction = sort.endsWith("_asc") ? "ASC" : "DESC";
+		const comparison = direction === "ASC" ? ">" : "<";
 		const result = await database(config).query<
-			GalleryRow & { sortValue: string; uploaderGroupName: string }
+			GalleryRow & { sortValue: string }
 		>(
-			`SELECT ${select}, ${sortExpression}::text AS "sortValue",
-			 ${uploaderName} AS "uploaderGroupName"
+			`SELECT ${select}, (${sortExpression})::text AS "sortValue"
 			 FROM collection_photos cp JOIN photos p ON p.id = cp.photo_id ${galleryJoins()}
 			 WHERE cp.collection_id = $1
+			 AND p.vault_id = $8::uuid
 			 AND ($6::text = 'all' OR p.media_type = UPPER($6::text))
-			 ${cursorCondition}
-			 ORDER BY ${orderBy} LIMIT $4`,
+			 AND ($7::uuid IS NULL OR p.uploaded_by_user_id = $7::uuid)
+			 AND ($2::${sortCast} IS NULL OR (${sortExpression}, p.id) ${comparison} ($2::${sortCast}, $3::uuid))
+			 ORDER BY ${sortExpression} ${direction}, p.id ${direction} LIMIT $4`,
 			[
 				collectionId,
 				cursor?.sortValue ?? null,
@@ -204,9 +229,8 @@ export async function registerPhotosModule(
 				limit + 1,
 				member.userId,
 				media,
-				...(groupBy === "uploader"
-					? [cursor?.uploaderName ?? null, cursor?.uploaderId ?? null]
-					: []),
+				uploaderId,
+				member.vaultId,
 			],
 		);
 		const hasMore = result.rows.length > limit;
@@ -222,20 +246,14 @@ export async function registerPhotosModule(
 				nextCursor:
 					hasMore && last
 						? encodeCursor({
-								v: 2,
+								v: 4,
 								collectionId,
 								orderVersion: collection.orderVersion,
 								sort,
 								media,
-								groupBy,
+								uploaderId,
 								sortValue: last.sortValue,
 								photoId: last.id,
-								...(groupBy === "uploader"
-									? {
-											uploaderName: last.uploaderGroupName,
-											uploaderId: last.uploaderId,
-										}
-									: {}),
 							})
 						: null,
 			},
