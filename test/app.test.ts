@@ -66,4 +66,26 @@ describe("HTTP API base structure", () => {
 		expect(body.error.requestId).toBeTruthy();
 		expect(body.error.message).toBe("Resource not found.");
 	});
+
+	it("allows browser preflights for collection and Loved mutations", async () => {
+		app = await buildApp(TEST_CONFIG);
+		for (const method of ["DELETE", "PATCH", "PUT"]) {
+			const response = await app.inject({
+				method: "OPTIONS",
+				url: "/v1/collections/00000000-0000-0000-0000-000000000000/photos/00000000-0000-0000-0000-000000000000",
+				headers: {
+					origin: TEST_CONFIG.corsOrigin,
+					"access-control-request-method": method,
+					"access-control-request-headers": "content-type",
+				},
+			});
+			expect(response.statusCode).toBe(204);
+			expect(response.headers["access-control-allow-methods"]).toContain(
+				method,
+			);
+			expect(response.headers["access-control-allow-origin"]).toBe(
+				TEST_CONFIG.corsOrigin,
+			);
+		}
+	});
 });
