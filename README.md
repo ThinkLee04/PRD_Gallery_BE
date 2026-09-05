@@ -5,8 +5,9 @@ Node.js + TypeScript + Fastify. See `../docs/technical-spec.md` for the
 architecture contract and `../.github/instructions/backend.instructions.md` for
 backend coding rules.
 
-> Status: base structure. Only the `health` module is implemented; auth, vaults,
-> photos, uploads (R2), collections, favorites, and compare are placeholders.
+> Status: `health` and `auth` (Google login + server-stored sessions) are
+> implemented; vaults, photos, uploads (R2), collections, favorites, and
+> compare are placeholders.
 
 ## Stack
 
@@ -51,6 +52,7 @@ npm start              # node dist/server.js
 
 Copy `.env.example` to `.env` and fill in values. The server fails fast on
 invalid config and binds to `127.0.0.1` (Caddy is the public entry point).
+Google OAuth keys, `APP_BASE_URL`, and `SESSION_SECRET` are required at boot.
 `GET /health` is liveness (no DB needed); `GET /ready` reports database
 readiness (503 + `not_configured` when `DATABASE_URL` is absent).
 

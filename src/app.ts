@@ -1,9 +1,11 @@
+import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import type { FastifyInstance } from "fastify";
 import Fastify from "fastify";
 import type { AppConfig } from "./config.js";
 import { errorHandler } from "./lib/error-handler.js";
 import { ErrorCodes } from "./lib/errors.js";
+import { registerAuthModule } from "./modules/auth/index.js";
 import { registerHealthModule } from "./modules/health/routes.js";
 
 /**
@@ -38,6 +40,9 @@ export async function buildApp(config: AppConfig): Promise<FastifyInstance> {
 		credentials: true,
 	});
 
+	// Cookie parsing/serialization for session + OAuth-state cookies.
+	await app.register(cookie);
+
 	app.setErrorHandler(errorHandler);
 	app.setNotFoundHandler((request, reply) => {
 		void reply.code(404).send({
@@ -49,8 +54,9 @@ export async function buildApp(config: AppConfig): Promise<FastifyInstance> {
 		});
 	});
 
-	// Domain modules. Health is the only implemented module in the base build.
+	// Domain modules. Health is always available; auth provides Google login.
 	await registerHealthModule(app, config);
+	await registerAuthModule(app, config);
 
 	return app;
 }
