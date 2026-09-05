@@ -64,6 +64,12 @@ describe("loadConfig", () => {
 				SESSION_TTL_DAYS: "14",
 				AUTH_RATE_LIMIT_MAX: "5",
 				AUTH_RATE_LIMIT_WINDOW_SECONDS: "30",
+				APP_ADMIN_EMAILS: "admin@example.com",
+				SINGLE_VAULT_NAME: "Friends",
+				R2_ENDPOINT: "https://account.r2.cloudflarestorage.com",
+				R2_ACCESS_KEY_ID: "access",
+				R2_SECRET_ACCESS_KEY: "secret",
+				R2_BUCKET_NAME: "photos",
 			}),
 			FIXTURE_DIR,
 		);
@@ -82,6 +88,18 @@ describe("loadConfig", () => {
 			sessionTtlDays: 14,
 			authRateLimitMax: 5,
 			authRateLimitWindowSeconds: 30,
+			adminEmails: ["admin@example.com"],
+			vaultName: "Friends",
+			r2: {
+				endpoint: "https://account.r2.cloudflarestorage.com",
+				accessKeyId: "access",
+				secretAccessKey: "secret",
+				bucket: "photos",
+			},
+			r2UploadUrlTtlSeconds: 1800,
+			r2DownloadUrlTtlSeconds: 600,
+			maxImageUploadBytes: 104857600,
+			maxVideoUploadBytes: 209715200,
 		});
 	});
 

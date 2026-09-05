@@ -1,0 +1,12 @@
+[
+  {
+    "AllowedOrigins": [
+      "https://prdgallery.thinhsuee.com",
+      "http://localhost:5173"
+    ],
+    "AllowedMethods": ["GET", "PUT", "HEAD"],
+    "AllowedHeaders": ["Content-Type", "If-None-Match", "Range"],
+    "ExposeHeaders": ["ETag", "Content-Length", "Content-Range"],
+    "MaxAgeSeconds": 3600
+  }
+]

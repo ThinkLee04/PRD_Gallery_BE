@@ -4,9 +4,8 @@ import { resolve } from "node:path";
 /**
  * Fail-fast, typed application configuration.
  *
- * Google OAuth keys and the session secret are required at boot (spec §13):
- * without them the auth module cannot start. R2 secrets are still reserved for
- * the uploads module and are validated there when it lands (see .env.example).
+ * Google OAuth keys and the session secret are required at boot. Production
+ * also requires an administrator allowlist and complete private R2 settings.
  */
 
 export type NodeEnv = "development" | "test" | "production";
@@ -40,6 +39,18 @@ export interface AppConfig {
 	/** In-memory per-IP rate limit for the OAuth endpoints. */
 	authRateLimitMax: number;
 	authRateLimitWindowSeconds: number;
+	adminEmails: readonly string[];
+	vaultName: string;
+	r2: {
+		endpoint: string;
+		accessKeyId: string;
+		secretAccessKey: string;
+		bucket: string;
+	} | null;
+	r2UploadUrlTtlSeconds: number;
+	r2DownloadUrlTtlSeconds: number;
+	maxImageUploadBytes: number;
+	maxVideoUploadBytes: number;
 }
 
 export class ConfigError extends Error {
@@ -99,6 +110,16 @@ export function loadConfig(
 			problems.push(
 				`${name} must be an integer between 0 and 65535 (got "${raw}").`,
 			);
+			return fallback;
+		}
+		return parsed;
+	};
+	const readPositiveInt = (name: string, fallback: number): number => {
+		const raw = env[name];
+		if (raw === undefined || raw === "") return fallback;
+		const parsed = Number.parseInt(raw, 10);
+		if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+			problems.push(`${name} must be a positive integer (got "${raw}").`);
 			return fallback;
 		}
 		return parsed;
@@ -164,6 +185,57 @@ export function loadConfig(
 		"AUTH_RATE_LIMIT_WINDOW_SECONDS",
 		60,
 	);
+	const adminEmails = (env.APP_ADMIN_EMAILS ?? "")
+		.split(",")
+		.map((email) => email.trim().toLowerCase())
+		.filter((email) => email !== "");
+	if (nodeEnvRaw === "production" && adminEmails.length === 0) {
+		problems.push(
+			"APP_ADMIN_EMAILS must contain at least one email in production.",
+		);
+	}
+	const vaultName = (env.SINGLE_VAULT_NAME ?? "Photo Vault").trim();
+	if (vaultName.length === 0 || vaultName.length > 120) {
+		problems.push("SINGLE_VAULT_NAME must be between 1 and 120 characters.");
+	}
+
+	const r2Values = {
+		endpoint: (env.R2_ENDPOINT ?? "").trim(),
+		accessKeyId: (env.R2_ACCESS_KEY_ID ?? "").trim(),
+		secretAccessKey: (env.R2_SECRET_ACCESS_KEY ?? "").trim(),
+		bucket: (env.R2_BUCKET_NAME ?? "").trim(),
+	};
+	const configuredR2Values = Object.values(r2Values).filter(
+		(value) => value !== "",
+	);
+	if (configuredR2Values.length > 0 && configuredR2Values.length !== 4) {
+		problems.push(
+			"R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, and R2_BUCKET_NAME must be configured together.",
+		);
+	}
+	if (r2Values.endpoint !== "" && !isHttpUrl(r2Values.endpoint)) {
+		problems.push("R2_ENDPOINT must be an absolute http(s) URL.");
+	}
+	const r2 = configuredR2Values.length === 4 ? r2Values : null;
+	if (nodeEnvRaw === "production" && r2 === null) {
+		problems.push("R2 storage configuration is required in production.");
+	}
+	const r2UploadUrlTtlSeconds = readPositiveInt(
+		"R2_UPLOAD_URL_TTL_SECONDS",
+		1800,
+	);
+	const r2DownloadUrlTtlSeconds = readPositiveInt(
+		"R2_DOWNLOAD_URL_TTL_SECONDS",
+		600,
+	);
+	const maxImageUploadBytes = readPositiveInt(
+		"MAX_IMAGE_UPLOAD_BYTES",
+		100 * 1024 * 1024,
+	);
+	const maxVideoUploadBytes = readPositiveInt(
+		"MAX_VIDEO_UPLOAD_BYTES",
+		200 * 1024 * 1024,
+	);
 
 	if (problems.length > 0) throw new ConfigError(problems);
 
@@ -181,5 +253,12 @@ export function loadConfig(
 		sessionTtlDays,
 		authRateLimitMax,
 		authRateLimitWindowSeconds,
+		adminEmails,
+		vaultName,
+		r2,
+		r2UploadUrlTtlSeconds,
+		r2DownloadUrlTtlSeconds,
+		maxImageUploadBytes,
+		maxVideoUploadBytes,
 	};
 }

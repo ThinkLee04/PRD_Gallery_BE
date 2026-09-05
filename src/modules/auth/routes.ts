@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { AppConfig } from "../../config.js";
 import { getPool } from "../../db/pool.js";
+import { bootstrapUserAccess } from "../memberships/service.js";
 import { upsertGoogleUser } from "../users/service.js";
 import {
 	createLoginContext,
@@ -126,6 +127,12 @@ export async function registerAuthModule(
 					throw new Error("DATABASE_URL is not configured.");
 				}
 				const user = await upsertGoogleUser(pool, profile);
+				await bootstrapUserAccess(pool, {
+					userId: user.id,
+					email: user.email,
+					adminEmails: config.adminEmails,
+					vaultName: config.vaultName,
+				});
 
 				const { token, tokenHash } = newSessionToken();
 				await createSession(pool, {
@@ -155,13 +162,40 @@ export async function registerAuthModule(
 		"/v1/me",
 		{ schema: { response: { 200: MeResponseSchema } } },
 		async (request) => {
-			const user = await requireUser(request, config);
+			let user = await requireUser(request, config);
+			if (
+				config.adminEmails.includes(user.email.toLowerCase()) &&
+				(!user.isAdmin || user.approvalStatus !== "APPROVED")
+			) {
+				const pool = getPool(config);
+				if (pool !== null) {
+					await bootstrapUserAccess(pool, {
+						userId: user.id,
+						email: user.email,
+						adminEmails: config.adminEmails,
+						vaultName: config.vaultName,
+					});
+					user = await requireUser(request, config);
+				}
+			}
 			return {
 				data: {
 					id: user.id,
 					email: user.email,
 					displayName: user.displayName,
 					avatarUrl: user.avatarUrl,
+					approvalStatus: user.approvalStatus,
+					isAdmin: user.isAdmin,
+					vault:
+						user.vaultId === null ||
+						user.vaultRole === null ||
+						user.vaultName === null
+							? null
+							: {
+									id: user.vaultId,
+									name: user.vaultName,
+									role: user.vaultRole,
+								},
 				},
 			};
 		},

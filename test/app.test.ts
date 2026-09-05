@@ -18,6 +18,13 @@ const TEST_CONFIG: AppConfig = {
 	sessionTtlDays: 30,
 	authRateLimitMax: 10_000,
 	authRateLimitWindowSeconds: 60,
+	adminEmails: [],
+	vaultName: "Photo Vault",
+	r2: null,
+	r2UploadUrlTtlSeconds: 1800,
+	r2DownloadUrlTtlSeconds: 600,
+	maxImageUploadBytes: 104857600,
+	maxVideoUploadBytes: 209715200,
 };
 
 describe("HTTP API base structure", () => {

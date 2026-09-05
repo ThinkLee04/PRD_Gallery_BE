@@ -38,6 +38,13 @@ function makeConfig(databaseUrl: string): AppConfig {
 		sessionTtlDays: 30,
 		authRateLimitMax: 1_000_000,
 		authRateLimitWindowSeconds: 60,
+		adminEmails: [],
+		vaultName: "Photo Vault",
+		r2: null,
+		r2UploadUrlTtlSeconds: 1800,
+		r2DownloadUrlTtlSeconds: 600,
+		maxImageUploadBytes: 104857600,
+		maxVideoUploadBytes: 209715200,
 	};
 }
 

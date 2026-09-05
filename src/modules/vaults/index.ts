@@ -1,1 +1,1 @@
-// Domain module placeholder — added when the feature lands.
+export { registerVaultModule } from "./routes.js";
