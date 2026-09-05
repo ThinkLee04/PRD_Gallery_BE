@@ -15,6 +15,7 @@ import {
 	requireApprovedMember,
 	requireCollection,
 } from "../memberships/service.js";
+import { signDownload } from "../uploads/storage.js";
 
 interface ListCursor {
 	v: 1;
@@ -78,14 +79,31 @@ export async function registerCollectionsModule(
 			archivedAt: string | null;
 			cursorAt: string;
 			photoCount: string;
+			creatorName: string;
+			creatorAvatarUrl: string | null;
+			coverKey: string | null;
+			coverWidth: number | null;
+			coverHeight: number | null;
 		}>(
 			`SELECT c.id, c.name, c.description, c.created_by_user_id AS "createdByUserId",
 			 c.created_at AS "createdAt", c.updated_at AS "updatedAt", c.archived_at AS "archivedAt",
-			 ${timestampColumn} AS "cursorAt", count(cp.photo_id)::text AS "photoCount"
-			 FROM collections c LEFT JOIN collection_photos cp ON cp.collection_id = c.id
+			 ${timestampColumn} AS "cursorAt",
+			 (SELECT count(*)::text FROM collection_photos cp0 WHERE cp0.collection_id = c.id) AS "photoCount",
+			 creator.display_name AS "creatorName", creator.avatar_url AS "creatorAvatarUrl",
+			 cover.object_key AS "coverKey", cover.width AS "coverWidth", cover.height AS "coverHeight"
+			 FROM collections c
+			 JOIN users creator ON creator.id = c.created_by_user_id
+			 LEFT JOIN LATERAL (
+				 SELECT asset.object_key, asset.width, asset.height
+				 FROM collection_photos cp
+				 JOIN photos p ON p.id = cp.photo_id AND p.status = 'READY'
+				 JOIN photo_assets asset ON asset.photo_id = p.id AND asset.kind = 'THUMBNAIL_SM'
+				 WHERE cp.collection_id = c.id
+				 ORDER BY cp.position, cp.photo_id LIMIT 1
+			 ) cover ON true
 			 WHERE c.vault_id = $1 AND ${visibility}
 			 AND ($2::timestamptz IS NULL OR (${timestampColumn}, c.id) < ($2::timestamptz, $5::uuid))
-			 GROUP BY c.id ORDER BY ${timestampColumn} DESC, c.id DESC LIMIT $6`,
+			 ORDER BY ${timestampColumn} DESC, c.id DESC LIMIT $6`,
 			[
 				member.vaultId,
 				cursor?.at ?? null,
@@ -96,11 +114,33 @@ export async function registerCollectionsModule(
 			],
 		);
 		const hasMore = result.rows.length > limit;
-		const rows = result.rows.slice(0, limit).map((row) => ({
-			...row,
-			photoCount: Number(row.photoCount),
-			canManage: canManageCollection(member, row.createdByUserId),
-		}));
+		const rows = await Promise.all(
+			result.rows.slice(0, limit).map(async (row) => {
+				const cover =
+					row.coverKey !== null &&
+					row.coverWidth !== null &&
+					row.coverHeight !== null &&
+					config.r2 !== null
+						? {
+								...(await signDownload(config, row.coverKey)),
+								width: row.coverWidth,
+								height: row.coverHeight,
+							}
+						: null;
+				const {
+					coverKey: _coverKey,
+					coverWidth: _coverWidth,
+					coverHeight: _coverHeight,
+					...collection
+				} = row;
+				return {
+					...collection,
+					photoCount: Number(row.photoCount),
+					canManage: canManageCollection(member, row.createdByUserId),
+					cover,
+				};
+			}),
+		);
 		const last = rows.at(-1);
 		return {
 			data: rows,
