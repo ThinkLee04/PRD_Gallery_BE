@@ -100,7 +100,7 @@ export async function registerCollectionsModule(
 			coverWidth: number | null;
 			coverHeight: number | null;
 		}>(
-			`SELECT c.id, c.name, c.description, c.event_date AS "eventDate", c.created_by_user_id AS "createdByUserId",
+			`SELECT c.id, c.name, c.description, to_char(c.event_date, 'YYYY-MM-DD') AS "eventDate", c.created_by_user_id AS "createdByUserId",
 			 c.created_at AS "createdAt", c.updated_at AS "updatedAt", c.archived_at AS "archivedAt",
 			 ${timestampColumn} AS "cursorAt",
 			 (SELECT count(*)::text FROM collection_photos cp0 WHERE cp0.collection_id = c.id) AS "photoCount",
@@ -187,7 +187,7 @@ export async function registerCollectionsModule(
 			const result = await database(config).query(
 				`INSERT INTO collections (vault_id, name, description, event_date, created_by_user_id)
 			 VALUES ($1, $2, $3, $4, $5)
-			 RETURNING id, name, description, event_date AS "eventDate", created_at AS "createdAt"`,
+			 RETURNING id, name, description, to_char(event_date, 'YYYY-MM-DD') AS "eventDate", created_at AS "createdAt"`,
 				[
 					member.vaultId,
 					name,
@@ -219,7 +219,7 @@ export async function registerCollectionsModule(
 		)
 			throw new ApiError(ErrorCodes.NOT_FOUND, "Collection not found.");
 		const result = await database(config).query(
-			`SELECT c.id, c.name, c.description, c.event_date AS "eventDate", c.created_by_user_id AS "createdByUserId",
+			`SELECT c.id, c.name, c.description, to_char(c.event_date, 'YYYY-MM-DD') AS "eventDate", c.created_by_user_id AS "createdByUserId",
 			 c.created_at AS "createdAt", c.updated_at AS "updatedAt", c.archived_at AS "archivedAt",
 			 c.order_version::text AS "orderVersion", count(cp.photo_id)::int AS "photoCount"
 			 FROM collections c LEFT JOIN collection_photos cp ON cp.collection_id = c.id
@@ -266,7 +266,7 @@ export async function registerCollectionsModule(
 			 description = CASE WHEN $3 THEN $4 ELSE description END,
 			 event_date = CASE WHEN $5 THEN $6 ELSE event_date END,
 			 updated_at = now() WHERE id = $1
-			 RETURNING id, name, description, event_date AS "eventDate", updated_at AS "updatedAt"`,
+			 RETURNING id, name, description, to_char(event_date, 'YYYY-MM-DD') AS "eventDate", updated_at AS "updatedAt"`,
 				[
 					collectionId,
 					body.name?.trim() || null,
