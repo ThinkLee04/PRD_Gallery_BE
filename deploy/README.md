@@ -39,8 +39,10 @@ scp -i ~/.ssh/photo_vault_deploy -P 8686 photo-vault.env root@<vps>:/opt/photo-v
 ssh -i ~/.ssh/photo_vault_deploy -p 8686 root@<vps> 'chmod 600 /opt/photo-vault/photo-vault.env'
 ```
 
-Rules (kept compatible with both systemd and the deploy script's `source`):
-no `export`, no spaces around `=`, quote values with special characters.
+Format rules (systemd `EnvironmentFile`): no `export`, no spaces around `=`.
+Values may contain special characters such as `&` (e.g. a Postgres URL) — the
+deploy script reads values as raw text and never shell-sources the file, so
+they are safe unquoted; wrapping values in double quotes is optional and fine.
 
 ## 4. systemd unit
 
@@ -88,3 +90,31 @@ ssh -i ~/.ssh/photo_vault_deploy root@<vps> 'node -v && npm -v'
 
 Watch a deploy in the `be` repo Actions tab. If the remote step fails, the
 messages in `scripts/deploy-remote.sh` say exactly what is missing.
+
+## 7. Updating the environment
+
+The service only reads `/opt/photo-vault/photo-vault.env` at process start
+(systemd `EnvironmentFile=`), and deploys never overwrite it — so changes only
+take effect after a restart.
+
+1. Edit the source copy `deploy/photo-vault.env`, then upload it (keep it LF):
+   ```bash
+   scp -i ~/.ssh/photo_vault_deploy -P 8686 photo-vault.env root@<vps>:/opt/photo-vault/photo-vault.env
+   ssh -i ~/.ssh/photo_vault_deploy -p 8686 root@<vps> 'chmod 600 /opt/photo-vault/photo-vault.env'
+   ```
+   (Quick server-side edits with `nano` can skip the upload, but mirror the
+   change back to `deploy/photo-vault.env` so the source stays accurate.)
+2. Restart so systemd re-reads the file:
+   ```bash
+   ssh -i ~/.ssh/photo_vault_deploy -p 8686 root@<vps> 'sudo systemctl restart photo-vault'
+   ```
+3. Verify:
+   ```bash
+   curl http://127.0.0.1:3000/health   # 200
+   curl http://127.0.0.1:3000/ready    # {"data":{"status":"ready","database":"ok"}}
+   ssh -i ~/.ssh/photo_vault_deploy -p 8686 root@<vps> 'sudo journalctl -u photo-vault -n 20 --no-pager'
+   ```
+
+Runtime settings (`DATABASE_URL`, `CORS_ORIGIN`, and later `GOOGLE_*`,
+`SESSION_SECRET`, R2 keys) apply after the restart. Migration-time values are
+read fresh from the file on every deploy, so those need no restart.
