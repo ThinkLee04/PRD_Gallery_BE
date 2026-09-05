@@ -86,10 +86,12 @@ export async function requireApprovedMember(
 }
 
 export function canManageCollection(
-	member: ApprovedMember,
-	createdByUserId: string,
+	_member: ApprovedMember,
+	_createdByUserId: string,
 ): boolean {
-	return member.role === "OWNER" || member.userId === createdByUserId;
+	// Collections belong to the shared vault. Reaching this helper means the
+	// request has already resolved an approved membership for that vault.
+	return true;
 }
 
 export async function requireCollection(
