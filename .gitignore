@@ -16,3 +16,4 @@ deploy/*.env
 .DS_Store
 Thumbs.db
 deploy/photo-vault.env
+deploy/Caddyfile
