@@ -12,11 +12,9 @@ Intended modules:
   sessions (SHA-256 hashed tokens in `sessions`), `GET /v1/me`,
   `POST /auth/logout`
 - `users` — implemented (user records upserted by Google `sub`)
-- `vaults` — vaults, owner-only configuration
-- `memberships` — the authorization source of truth (`OWNER` / `MEMBER`)
-- `photos` — photo metadata + lifecycle (never image bytes)
-- `uploads` — direct-to-R2 presigned upload orchestration
-- `collections`, `favorites`, `compare` — organization/presentation features
-
-Vaults, memberships, photos, uploads, collections, favorites, and compare are
-placeholders. Do not pre-build features (see `docs/technical-spec.md` §18).
+- `vaults`, `memberships` — singleton vault, approval, and the authorization
+  source of truth (`OWNER` / `MEMBER`)
+- `photos`, `uploads` — cursor gallery metadata, direct-to-R2 originals,
+  signed delivery, and in-process derivative generation
+- `collections`, `favorites` — shared ordered Albums and private Loved state
+- `compare` — placeholder for future client-side comparison

@@ -11,5 +11,18 @@ export const MeResponseSchema = Type.Object({
 		email: Type.String(),
 		displayName: Type.String(),
 		avatarUrl: Type.Union([Type.String(), Type.Null()]),
+		approvalStatus: Type.Union([
+			Type.Literal("PENDING"),
+			Type.Literal("APPROVED"),
+		]),
+		isAdmin: Type.Boolean(),
+		vault: Type.Union([
+			Type.Object({
+				id: Type.String(),
+				name: Type.String(),
+				role: Type.Union([Type.Literal("OWNER"), Type.Literal("MEMBER")]),
+			}),
+			Type.Null(),
+		]),
 	}),
 });

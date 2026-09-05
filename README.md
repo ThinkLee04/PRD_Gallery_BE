@@ -5,9 +5,9 @@ Node.js + TypeScript + Fastify. See `../docs/technical-spec.md` for the
 architecture contract and `../.github/instructions/backend.instructions.md` for
 backend coding rules.
 
-> Status: `health` and `auth` (Google login + server-stored sessions) are
-> implemented; vaults, photos, uploads (R2), collections, favorites, and
-> compare are placeholders.
+> Status: authentication, approval, singleton-vault membership, shared
+> Collections, private Loved photos, direct R2 uploads, derived images, and
+> cursor gallery delivery are implemented. Compare remains future work.
 
 ## Stack
 
@@ -53,6 +53,8 @@ npm start              # node dist/server.js
 Copy `.env.example` to `.env` and fill in values. The server fails fast on
 invalid config and binds to `127.0.0.1` (Caddy is the public entry point).
 Google OAuth keys, `APP_BASE_URL`, and `SESSION_SECRET` are required at boot.
+Production also requires `APP_ADMIN_EMAILS` and the private R2 settings shown
+in `.env.example`; video metadata processing requires `ffprobe`.
 `GET /health` is liveness (no DB needed); `GET /ready` reports database
 readiness (503 + `not_configured` when `DATABASE_URL` is absent).
 
@@ -67,7 +69,8 @@ readiness (503 + `not_configured` when `DATABASE_URL` is absent).
 ## Non-negotiables honored here
 
 - No Docker, Redis, queues, or microservices.
-- Image bytes are never stored in Postgres and never proxied through the API;
-  uploads/downloads will use short-lived presigned R2 URLs (future `uploads`/
-  `photos` modules).
+- Image bytes are never stored in Postgres or proxied through the API;
+  uploads/downloads use short-lived, membership-authorized R2 URLs.
+- Originals are write-once and never deleted or recompressed; thumbnails are
+  separate derivative objects.
 - Secrets live only in environment configuration, never in code or logs.

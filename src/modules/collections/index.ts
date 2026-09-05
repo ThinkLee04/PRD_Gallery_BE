@@ -1,1 +1,1 @@
-// Domain module placeholder — added when the feature lands.
+export { registerCollectionsModule } from "./routes.js";

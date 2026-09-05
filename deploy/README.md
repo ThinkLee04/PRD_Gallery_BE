@@ -20,6 +20,18 @@ sudo apt-get install -y nodejs
 node -v && npm -v
 ```
 
+Install `ffprobe` for video metadata extraction and verify Sharp/HEIC support
+on the target host before enabling uploads:
+
+```bash
+sudo apt-get install -y ffmpeg
+ffprobe -version
+node -e "const sharp=require('sharp'); console.log(sharp.versions)"
+```
+
+Keep the R2 bucket private. Configure its CORS policy for the exact frontend
+origin with `GET`, `PUT`, and `HEAD`, allow `Content-Type`, and expose `ETag`.
+
 ## 3. Environment file
 
 Build `/opt/photo-vault/photo-vault.env` from `photo-vault.env.example` with the

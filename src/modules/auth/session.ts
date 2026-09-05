@@ -21,6 +21,11 @@ export interface SessionUser {
 	email: string;
 	displayName: string;
 	avatarUrl: string | null;
+	approvalStatus: "PENDING" | "APPROVED";
+	isAdmin: boolean;
+	vaultId: string | null;
+	vaultName: string | null;
+	vaultRole: "OWNER" | "MEMBER" | null;
 }
 
 /** Cookie flags shared by session and OAuth-state cookies. */
@@ -110,6 +115,11 @@ interface SessionUserRow {
 	displayName: string;
 	avatarUrl: string | null;
 	sessionId: string;
+	approvalStatus: "PENDING" | "APPROVED";
+	isAdmin: boolean;
+	vaultId: string | null;
+	vaultName: string | null;
+	vaultRole: "OWNER" | "MEMBER" | null;
 }
 
 /**
@@ -126,9 +136,16 @@ export async function findActiveUserByTokenHash(
 		        u.email,
 		        u.display_name AS "displayName",
 		        u.avatar_url AS "avatarUrl",
-		        s.id AS "sessionId"
+		        s.id AS "sessionId",
+		        u.approval_status AS "approvalStatus",
+		        u.is_app_admin AS "isAdmin",
+		        v.id AS "vaultId",
+		        v.name AS "vaultName",
+		        CASE WHEN v.id IS NULL THEN NULL ELSE vm.role END AS "vaultRole"
 		   FROM sessions s
 		   JOIN users u ON u.id = s.user_id
+		   LEFT JOIN vault_memberships vm ON vm.user_id = u.id
+		   LEFT JOIN vaults v ON v.id = vm.vault_id AND v.archived_at IS NULL
 		  WHERE s.token_hash = $1
 		    AND s.revoked_at IS NULL
 		    AND s.expires_at > now()`,
@@ -148,6 +165,11 @@ export async function findActiveUserByTokenHash(
 		email: row.email,
 		displayName: row.displayName,
 		avatarUrl: row.avatarUrl,
+		approvalStatus: row.approvalStatus,
+		isAdmin: row.isAdmin,
+		vaultId: row.vaultId,
+		vaultName: row.vaultName,
+		vaultRole: row.vaultRole,
 	};
 }
 
