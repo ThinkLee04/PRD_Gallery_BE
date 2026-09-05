@@ -1,0 +1,35 @@
+# systemd unit for the Photo Vault API. Install with:
+#   sudo install -m 644 photo-vault.service /etc/systemd/system/photo-vault.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now photo-vault
+#
+# Runs as root by default (simplest on a single-user VPS where SSH deploys as
+# root). For a dedicated non-root user, uncomment User/Group AND make the env
+# file readable by that user:
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin photo-vault
+#   sudo chown photo-vault:photo-vault /opt/photo-vault/photo-vault.env
+#   sudo chmod 600 /opt/photo-vault/photo-vault.env
+# (release dirs are written by the root SSH deploy, so keep root simple unless
+# you also chown each release in the deploy step)
+
+[Unit]
+Description=Photo Vault API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/photo-vault/current
+EnvironmentFile=/opt/photo-vault/photo-vault.env
+ExecStart=/usr/bin/node dist/server.js
+Restart=on-failure
+RestartSec=3
+# User=photo-vault
+# Group=photo-vault
+NoNewPrivileges=true
+PrivateTmp=true
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
