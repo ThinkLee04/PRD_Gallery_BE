@@ -7,7 +7,12 @@ coverage/
 .env
 .env.*
 !.env.example
+# Server env files built locally for upload (keep the *.example template)
+deploy/photo-vault.env
+deploy/*.env
+!deploy/*.env.example
 
 # OS / editor noise
 .DS_Store
 Thumbs.db
+deploy/photo-vault.env
