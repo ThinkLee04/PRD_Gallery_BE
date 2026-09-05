@@ -1,1 +1,2 @@
-// Domain module placeholder — added when the feature lands.
+export type { GoogleUserProfile, UserRow } from "./service.js";
+export { upsertGoogleUser } from "./service.js";
