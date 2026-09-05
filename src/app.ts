@@ -44,6 +44,7 @@ export async function buildApp(config: AppConfig): Promise<FastifyInstance> {
 	await app.register(cors, {
 		origin: config.corsOrigin,
 		credentials: true,
+		methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 	});
 
 	// Cookie parsing/serialization for session + OAuth-state cookies.
