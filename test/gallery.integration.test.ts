@@ -167,6 +167,15 @@ describeDb("gallery authorization and privacy", () => {
 		expect(uploaders.statusCode).toBe(404);
 		expect(uploaders.json().error.code).toBe("NOT_FOUND");
 
+		const originalUrl = await app.inject({
+			method: "POST",
+			url: `/v1/photos/${photoId}/original-url`,
+			headers: { cookie: outsiderCookie },
+			payload: { purpose: "view" },
+		});
+		expect(originalUrl.statusCode).toBe(404);
+		expect(originalUrl.json().error.code).toBe("NOT_FOUND");
+
 		for (const mutation of [
 			{
 				method: "PATCH" as const,
