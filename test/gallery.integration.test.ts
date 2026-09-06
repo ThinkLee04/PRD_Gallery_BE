@@ -103,6 +103,11 @@ describeDb("gallery authorization and privacy", () => {
 			)
 		).rows[0]?.id as string;
 		await setupPool.query(
+			`INSERT INTO photo_assets (photo_id, kind, object_key, content_type, byte_size, width, height)
+			 VALUES ($1, 'THUMBNAIL_SM', $2, 'image/webp', 10, 100, 100)`,
+			[photoId, `vaults/${vaultId}/test-${suffix}-thumb-sm.webp`],
+		);
+		await setupPool.query(
 			"INSERT INTO collection_photos (collection_id,photo_id,position,added_by_user_id) VALUES ($1,$2,1,$3)",
 			[collectionId, photoId, memberId],
 		);
@@ -167,6 +172,16 @@ describeDb("gallery authorization and privacy", () => {
 		expect(uploaders.statusCode).toBe(404);
 		expect(uploaders.json().error.code).toBe("NOT_FOUND");
 
+		for (const url of ["/v1/loved", "/v1/loved/uploaders"]) {
+			const loved = await app.inject({
+				method: "GET",
+				url,
+				headers: { cookie: outsiderCookie },
+			});
+			expect(loved.statusCode).toBe(404);
+			expect(loved.json().error.code).toBe("NOT_FOUND");
+		}
+
 		const originalUrl = await app.inject({
 			method: "POST",
 			url: `/v1/photos/${photoId}/original-url`,
@@ -194,6 +209,11 @@ describeDb("gallery authorization and privacy", () => {
 					byteSize: 10,
 					contentType: "image/jpeg",
 				},
+			},
+			{
+				method: "PUT" as const,
+				url: `/v1/collections/${ownerCollectionId}/cover`,
+				payload: { photoId },
 			},
 		]) {
 			const denied = await app.inject({
@@ -310,6 +330,22 @@ describeDb("gallery authorization and privacy", () => {
 		expect(updated.statusCode).toBe(200);
 		expect(updated.json().data.eventDate).toBe(eventDate);
 
+		const filteredAlbums = await app.inject({
+			method: "GET",
+			url: "/v1/collections?q=Member&dateFrom=2026-09-01&dateTo=2026-09-30",
+			headers: { cookie: memberCookie },
+		});
+		expect(filteredAlbums.statusCode).toBe(200);
+		expect(
+			filteredAlbums.json().data.map((album: { id: string }) => album.id),
+		).toContain(collectionId);
+		const noMatch = await app.inject({
+			method: "GET",
+			url: "/v1/collections?q=does-not-exist",
+			headers: { cookie: memberCookie },
+		});
+		expect(noMatch.json().data).toEqual([]);
+
 		const uploaders = await app.inject({
 			method: "GET",
 			url: `/v1/collections/${collectionId}/uploaders`,
@@ -354,6 +390,27 @@ describeDb("gallery authorization and privacy", () => {
 		expect(videos.json().data).toEqual([]);
 	});
 
+	it("lets a member choose an album thumbnail without changing the photo", async () => {
+		const selected = await app.inject({
+			method: "PUT",
+			url: `/v1/collections/${collectionId}/cover`,
+			headers: { cookie: memberCookie },
+			payload: { photoId },
+		});
+		expect(selected.statusCode).toBe(200);
+		expect(selected.json().data.coverPhotoId).toBe(photoId);
+		const stored = await setupPool.query<{
+			coverPhotoId: string;
+			photoCount: number;
+		}>(
+			`SELECT c.cover_photo_id AS "coverPhotoId",
+			 (SELECT count(*)::int FROM photos WHERE id = $2) AS "photoCount"
+			 FROM collections c WHERE c.id = $1`,
+			[collectionId, photoId],
+		);
+		expect(stored.rows[0]).toEqual({ coverPhotoId: photoId, photoCount: 1 });
+	});
+
 	it("rejects unsupported gallery controls", async () => {
 		for (const query of ["sort=random", "media=audio", "uploaderId=invalid"]) {
 			const response = await app.inject({
@@ -364,6 +421,16 @@ describeDb("gallery authorization and privacy", () => {
 			expect(response.statusCode).toBe(400);
 			expect(response.json().error.code).toBe("VALIDATION_ERROR");
 		}
+	});
+
+	it("rejects an invalid album date range", async () => {
+		const response = await app.inject({
+			method: "GET",
+			url: "/v1/collections?dateFrom=2026-10-01&dateTo=2026-09-01",
+			headers: { cookie: memberCookie },
+		});
+		expect(response.statusCode).toBe(400);
+		expect(response.json().error.code).toBe("VALIDATION_ERROR");
 	});
 
 	it("keeps Loved private per user", async () => {
@@ -380,6 +447,46 @@ describeDb("gallery authorization and privacy", () => {
 		expect(owner.json().data).toHaveLength(1);
 		expect(owner.json().data[0].loved).toBe(true);
 		expect(member.json().data).toHaveLength(0);
+	});
+
+	it("supports private Loved gallery controls", async () => {
+		const uploaders = await app.inject({
+			method: "GET",
+			url: "/v1/loved/uploaders",
+			headers: { cookie: ownerCookie },
+		});
+		expect(uploaders.statusCode).toBe(200);
+		expect(uploaders.json().data).toEqual([
+			expect.objectContaining({ id: memberId, photoCount: 1 }),
+		]);
+
+		const filtered = await app.inject({
+			method: "GET",
+			url: `/v1/loved?sort=alphabet_asc&media=image&uploaderId=${memberId}`,
+			headers: { cookie: ownerCookie },
+		});
+		expect(filtered.statusCode).toBe(200);
+		expect(
+			filtered.json().data.map((photo: { id: string }) => photo.id),
+		).toEqual([photoId]);
+
+		const videos = await app.inject({
+			method: "GET",
+			url: "/v1/loved?media=video",
+			headers: { cookie: ownerCookie },
+		});
+		expect(videos.statusCode).toBe(200);
+		expect(videos.json().data).toEqual([]);
+
+		for (const query of ["sort=random", "media=audio", "uploaderId=invalid"]) {
+			const response = await app.inject({
+				method: "GET",
+				url: `/v1/loved?${query}`,
+				headers: { cookie: ownerCookie },
+			});
+			expect(response.statusCode).toBe(400);
+			expect(response.json().error.code).toBe("VALIDATION_ERROR");
+		}
 	});
 
 	it("archives and restores a member-owned collection without altering its photo", async () => {

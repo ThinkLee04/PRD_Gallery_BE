@@ -60,8 +60,20 @@ export async function registerCollectionsModule(
 			state?: "active" | "archived";
 			cursor?: string;
 			limit?: string;
+			q?: string;
+			dateFrom?: string;
+			dateTo?: string;
 		};
 		const state = query.state ?? "active";
+		if (
+			[query.q, query.dateFrom, query.dateTo].some(
+				(value) => value !== undefined && typeof value !== "string",
+			)
+		)
+			throw new ApiError(
+				ErrorCodes.VALIDATION_ERROR,
+				"Invalid collection filters.",
+			);
 		if (state !== "active" && state !== "archived")
 			throw new ApiError(
 				ErrorCodes.VALIDATION_ERROR,
@@ -77,6 +89,16 @@ export async function registerCollectionsModule(
 				"Invalid pagination cursor.",
 			);
 		const limit = pageLimit(query.limit);
+		const search = query.q?.trim() || null;
+		if (search !== null && search.length > 120)
+			throw new ApiError(ErrorCodes.VALIDATION_ERROR, "Search is too long.");
+		const dateFrom = eventDateValue(query.dateFrom);
+		const dateTo = eventDateValue(query.dateTo);
+		if (dateFrom !== null && dateTo !== null && dateFrom > dateTo)
+			throw new ApiError(
+				ErrorCodes.VALIDATION_ERROR,
+				"Start date must be on or before end date.",
+			);
 		const timestampColumn =
 			state === "active" ? "c.created_at" : "c.archived_at";
 		const visibility =
@@ -108,18 +130,31 @@ export async function registerCollectionsModule(
 			 cover.object_key AS "coverKey", cover.width AS "coverWidth", cover.height AS "coverHeight"
 			 FROM collections c
 			 JOIN users creator ON creator.id = c.created_by_user_id
-			 LEFT JOIN LATERAL (
-				 SELECT asset.object_key, asset.width, asset.height
-				 FROM collection_photos cp
-				 JOIN photos p ON p.id = cp.photo_id AND p.status = 'READY'
-				 JOIN photo_assets asset ON asset.photo_id = p.id AND asset.kind = 'THUMBNAIL_SM'
-				 WHERE cp.collection_id = c.id
-				 ORDER BY cp.position, cp.photo_id LIMIT 1
-			 ) cover ON true
-			 WHERE c.vault_id = $1 AND ${visibility}
-			 AND ($2::timestamptz IS NULL OR (${timestampColumn}, c.id) < ($2::timestamptz, $3::uuid))
-			 ORDER BY ${timestampColumn} DESC, c.id DESC LIMIT $4`,
-			[member.vaultId, cursor?.at ?? null, cursor?.id ?? null, limit + 1],
+				 LEFT JOIN LATERAL (
+					 SELECT asset.object_key, asset.width, asset.height
+					 FROM collection_photos cp
+					 JOIN photos p ON p.id = cp.photo_id AND p.status = 'READY'
+					 JOIN photo_assets asset ON asset.photo_id = p.id AND asset.kind = 'THUMBNAIL_SM'
+					 WHERE cp.collection_id = c.id
+					 ORDER BY CASE WHEN cp.photo_id = c.cover_photo_id THEN 0 ELSE 1 END,
+					  cp.position, cp.photo_id LIMIT 1
+				 ) cover ON true
+				 WHERE c.vault_id = $1 AND ${visibility}
+				 AND ($2::text IS NULL OR STRPOS(LOWER(c.name), LOWER($2)) > 0
+				  OR STRPOS(LOWER(COALESCE(c.description, '')), LOWER($2)) > 0)
+				 AND ($3::date IS NULL OR c.event_date >= $3::date)
+				 AND ($4::date IS NULL OR c.event_date <= $4::date)
+				 AND ($5::timestamptz IS NULL OR (${timestampColumn}, c.id) < ($5::timestamptz, $6::uuid))
+				 ORDER BY ${timestampColumn} DESC, c.id DESC LIMIT $7`,
+			[
+				member.vaultId,
+				search,
+				dateFrom,
+				dateTo,
+				cursor?.at ?? null,
+				cursor?.id ?? null,
+				limit + 1,
+			],
 		);
 		const hasMore = result.rows.length > limit;
 		const rows = await Promise.all(
@@ -214,7 +249,7 @@ export async function registerCollectionsModule(
 		const result = await database(config).query(
 			`SELECT c.id, c.name, c.description, to_char(c.event_date, 'YYYY-MM-DD') AS "eventDate", c.created_by_user_id AS "createdByUserId",
 			 c.created_at AS "createdAt", c.updated_at AS "updatedAt", c.archived_at AS "archivedAt",
-			 c.order_version::text AS "orderVersion", count(cp.photo_id)::int AS "photoCount"
+			 c.order_version::text AS "orderVersion", c.cover_photo_id AS "coverPhotoId", count(cp.photo_id)::int AS "photoCount"
 			 FROM collections c LEFT JOIN collection_photos cp ON cp.collection_id = c.id
 			 WHERE c.id = $1 GROUP BY c.id`,
 			[collectionId],
@@ -269,6 +304,45 @@ export async function registerCollectionsModule(
 					eventDateValue(body.eventDate),
 				],
 			);
+			return { data: result.rows[0] };
+		},
+	);
+
+	app.put(
+		"/v1/collections/:collectionId/cover",
+		{
+			schema: {
+				body: Type.Object({
+					photoId: Type.Union([Type.String({ format: "uuid" }), Type.Null()]),
+				}),
+			},
+		},
+		async (request) => {
+			const member = await requireApprovedMember(request, config);
+			const { collectionId } = request.params as { collectionId: string };
+			const { photoId } = request.body as { photoId: string | null };
+			await requireCollection(database(config), member, collectionId, {
+				manage: true,
+			});
+			const result = await database(config).query<{
+				id: string;
+				coverPhotoId: string | null;
+			}>(
+				`UPDATE collections c SET cover_photo_id = $2, updated_at = now()
+				 WHERE c.id = $1 AND ($2::uuid IS NULL OR EXISTS (
+				  SELECT 1 FROM collection_photos cp
+				  JOIN photos p ON p.id = cp.photo_id
+				  JOIN photo_assets a ON a.photo_id = p.id AND a.kind = 'THUMBNAIL_SM'
+				  WHERE cp.collection_id = c.id AND cp.photo_id = $2
+				   AND p.vault_id = $3 AND p.status = 'READY' AND p.media_type = 'IMAGE'
+				 )) RETURNING c.id, c.cover_photo_id AS "coverPhotoId"`,
+				[collectionId, photoId, member.vaultId],
+			);
+			if (result.rowCount === 0)
+				throw new ApiError(
+					ErrorCodes.NOT_FOUND,
+					"Photo is not available as an album thumbnail.",
+				);
 			return { data: result.rows[0] };
 		},
 	);
@@ -329,6 +403,10 @@ export async function registerCollectionsModule(
 			await requireCollection(database(config), member, collectionId, {
 				manage: true,
 			});
+			await database(config).query(
+				"UPDATE collections SET cover_photo_id = NULL WHERE id = $1 AND cover_photo_id = $2",
+				[collectionId, photoId],
+			);
 			await database(config).query(
 				"DELETE FROM collection_photos WHERE collection_id = $1 AND photo_id = $2",
 				[collectionId, photoId],
