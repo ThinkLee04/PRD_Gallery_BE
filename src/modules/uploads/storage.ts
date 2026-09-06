@@ -1,4 +1,5 @@
 import {
+	DeleteObjectsCommand,
 	GetObjectCommand,
 	HeadObjectCommand,
 	PutObjectCommand,
@@ -105,6 +106,24 @@ export async function writeAsset(
 			CacheControl: `private, max-age=${config.r2DownloadUrlTtlSeconds}`,
 		}),
 	);
+}
+
+export async function deleteObjects(
+	config: AppConfig,
+	keys: readonly string[],
+): Promise<void> {
+	if (keys.length === 0) return;
+	const settings = storageConfig(config);
+	const result = await client(config).send(
+		new DeleteObjectsCommand({
+			Bucket: settings.bucket,
+			Delete: {
+				Objects: [...new Set(keys)].map((Key) => ({ Key })),
+				Quiet: true,
+			},
+		}),
+	);
+	if (result.Errors?.length) throw new Error("R2_OBJECT_DELETE_FAILED");
 }
 
 export async function signDownload(

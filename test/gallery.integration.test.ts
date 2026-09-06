@@ -191,6 +191,14 @@ describeDb("gallery authorization and privacy", () => {
 		expect(originalUrl.statusCode).toBe(404);
 		expect(originalUrl.json().error.code).toBe("NOT_FOUND");
 
+		const deletePhoto = await app.inject({
+			method: "DELETE",
+			url: `/v1/photos/${photoId}`,
+			headers: { cookie: outsiderCookie },
+		});
+		expect(deletePhoto.statusCode).toBe(404);
+		expect(deletePhoto.json().error.code).toBe("NOT_FOUND");
+
 		for (const mutation of [
 			{
 				method: "PATCH" as const,

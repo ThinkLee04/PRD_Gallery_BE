@@ -234,7 +234,7 @@ async function decodeHeic(buffer: Buffer): Promise<Buffer> {
 }
 
 async function processPhoto(
-	pool: pg.Pool,
+	pool: pg.PoolClient,
 	config: AppConfig,
 	photo: PendingPhoto,
 ): Promise<void> {
@@ -351,8 +351,12 @@ export function triggerProcessing(pool: pg.Pool, config: AppConfig): void {
 				);
 				const photo = claim.rows[0];
 				if (photo === undefined) break;
+				const client = await pool.connect();
 				try {
-					await processPhoto(pool, config, photo);
+					await client.query("SELECT pg_advisory_lock(hashtext($1))", [
+						photo.id,
+					]);
+					await processPhoto(client, config, photo);
 				} catch (error) {
 					const code =
 						error instanceof Error
@@ -362,6 +366,11 @@ export function triggerProcessing(pool: pg.Pool, config: AppConfig): void {
 						"UPDATE photos SET status = 'FAILED', processing_error_code = $2, updated_at = now() WHERE id = $1",
 						[photo.id, code],
 					);
+				} finally {
+					await client
+						.query("SELECT pg_advisory_unlock(hashtext($1))", [photo.id])
+						.catch(() => undefined);
+					client.release();
 				}
 			}
 		} finally {

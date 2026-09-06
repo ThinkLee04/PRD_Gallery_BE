@@ -15,6 +15,7 @@ import {
 } from "../memberships/service.js";
 import { triggerProcessing } from "../uploads/processor.js";
 import { signDownload } from "../uploads/storage.js";
+import { permanentlyDeletePhoto } from "./delete-photo.js";
 import {
 	findAccessiblePhoto,
 	type GalleryRow,
@@ -339,5 +340,20 @@ export async function registerPhotosModule(
 		);
 		triggerProcessing(database(config), config);
 		return { data: { id: photoId, status: "UPLOADED" } };
+	});
+
+	app.delete("/v1/photos/:photoId", async (request, reply) => {
+		const member = await requireApprovedMember(request, config);
+		const { photoId } = request.params as { photoId: string };
+		if (!isUuid(photoId))
+			throw new ApiError(ErrorCodes.NOT_FOUND, "Photo not found.");
+		const deleted = await permanentlyDeletePhoto(
+			database(config),
+			config,
+			member.vaultId,
+			photoId,
+		);
+		if (!deleted) throw new ApiError(ErrorCodes.NOT_FOUND, "Photo not found.");
+		return reply.code(204).send();
 	});
 }
